@@ -1,0 +1,46 @@
+# Local laptop test config. No external DAQ infrastructure required;
+# drive state changes with the scripts under tools/.
+
+storage:
+  plugin: downtime_logger.storage.sqlite_backend:SQLiteBackend
+  options:
+    path: ./events.db
+
+webserver:
+  enabled: true
+  bind: "127.0.0.1"
+  port: 8088
+  refresh_seconds: 3
+
+metric:
+  plugin: downtime_logger.core.metric:WeightedRatioMetric
+  options:
+    trip_threshold: 0.5
+    clear_threshold: 0.2
+    debounce_seconds: 2
+
+detectors:
+  - id: udp_heartbeat
+    plugin: downtime_logger.detectors.udp_detector:UdpDetector
+    weight: 1.0
+    options:
+      bind: "127.0.0.1"
+      port: 9000
+      heartbeat_timeout_s: 5
+
+  - id: local_disk
+    plugin: downtime_logger.detectors.disk_detector:DiskActivityDetector
+    weight: 1.0
+    options:
+      paths: ["/tmp/daq-test"]
+      idle_seconds: 10
+      poll_s: 2
+
+  - id: local_log
+    plugin: downtime_logger.detectors.logfile_detector:LogfileDetector
+    weight: 1.0
+    options:
+      path: /tmp/daq-test/run.log
+      down_patterns: ["RUN STOPPED", "FATAL"]
+      up_patterns: ["RUN STARTED"]
+      poll_s: 1

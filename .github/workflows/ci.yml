@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # PySide6 wheels bundle Qt, but the Qt runtime still needs these libs
+      # (xcb, egl, dbus, ...) to load the offscreen platform plugin.
+      - name: Install Qt offscreen runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \
+            libfontconfig1 libgl1
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      # Per-component test invocations. Each step shows up as its own
+      # green/red check in the GitHub UI so failures are easy to localize.
+
+      - name: config
+        run: pytest tests/test_config.py
+
+      - name: plugin loader
+        run: pytest tests/test_plugin_loader.py
+
+      - name: metric
+        run: pytest tests/test_metric.py
+
+      - name: state machine
+        run: pytest tests/test_state_machine.py
+
+      - name: storage (sqlite)
+        run: pytest tests/test_storage_sqlite.py
+
+      - name: detector — logfile
+        run: pytest tests/test_detector_logfile.py
+
+      - name: detector — disk
+        run: pytest tests/test_detector_disk.py
+
+      - name: detector — udp
+        run: pytest tests/test_detector_udp.py
+
+      - name: detector — zmq
+        run: pytest tests/test_detector_zmq.py
+
+      - name: detector — soap
+        run: pytest tests/test_detector_soap.py
+
+      - name: ui smoke
+        run: pytest tests/test_ui_smoke.py
+
+      - name: web server
+        run: pytest tests/test_web_server.py
+
+      - name: full suite (final aggregate)
+        run: pytest -v
+
+  importable:
+    name: import smoke (no extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install runtime deps only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libxkbcommon0 libdbus-1-3 libxcb-cursor0 libfontconfig1 libgl1
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Import every plugin module
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -c "import downtime_logger; \
+            import downtime_logger.core.event, downtime_logger.core.metric, \
+            downtime_logger.core.state_machine, downtime_logger.core.plugin_loader, \
+            downtime_logger.config, downtime_logger.app, \
+            downtime_logger.storage.sqlite_backend, \
+            downtime_logger.detectors.zeromq_detector, \
+            downtime_logger.detectors.udp_detector, \
+            downtime_logger.detectors.soap_detector, \
+            downtime_logger.detectors.disk_detector, \
+            downtime_logger.detectors.logfile_detector, \
+            downtime_logger.ui.main_window, downtime_logger.ui.popup_dialog, \
+            downtime_logger.ui.status_widget, downtime_logger.ui.tray, \
+            downtime_logger.web.server, downtime_logger.web.snapshot; \
+            print('all modules import OK')"

@@ -1,0 +1,87 @@
+# Example configuration for mu2edaq-downtime-logger.
+#
+# Plugin references use the form "module.path:ClassName". To add your own
+# detector, drop a module anywhere on PYTHONPATH that subclasses
+# downtime_logger.detectors.base.Detector and point at it from the list
+# below.
+
+storage:
+  plugin: downtime_logger.storage.sqlite_backend:SQLiteBackend
+  options:
+    path: ./events.db
+
+# Optional read-only HTTP view for remote shifters / dashboards.
+# Endpoints: /, /api/status, /api/events, /api/events/<id>, /healthz
+webserver:
+  enabled: true
+  bind: "0.0.0.0"
+  port: 8088
+  refresh_seconds: 5     # HTML page meta-refresh cadence
+  history_limit: 200     # number of past events shown / returned
+
+metric:
+  plugin: downtime_logger.core.metric:WeightedRatioMetric
+  options:
+    trip_threshold: 0.6     # score >= this -> open event
+    clear_threshold: 0.2    # score <= this while open -> close event
+    debounce_seconds: 5     # consumed by the StateMachine, not the metric
+
+detectors:
+  # 1) ZeroMQ SUB: heartbeat OR explicit "running"/"stopped" payloads.
+  - id: zmq_run_status
+    plugin: downtime_logger.detectors.zeromq_detector:ZmqDetector
+    weight: 0.5
+    options:
+      endpoint: "tcp://daq01:5555"
+      topic: ""                      # empty = subscribe-all
+      heartbeat_timeout_s: 10
+
+  # 2) UDP heartbeat broadcast.
+  - id: udp_heartbeat
+    plugin: downtime_logger.detectors.udp_detector:UdpDetector
+    weight: 0.3
+    options:
+      bind: "0.0.0.0"
+      port: 9000
+      heartbeat_timeout_s: 15
+
+  # 3) SOAP run-control poll.
+  - id: artdaq_soap
+    plugin: downtime_logger.detectors.soap_detector:SoapDetector
+    weight: 0.4
+    options:
+      wsdl: "http://daq01:8080/RunControl?wsdl"
+      operation: getRunState
+      args: {}
+      state_path: "runState"
+      down_values: ["Stopped", "Idle", "Halted"]
+      up_values: ["Running", "Active"]
+      poll_s: 5
+
+  # 4) Disk-write activity. Trips DOWN if no file in any path was modified
+  #    within idle_seconds.
+  - id: raw_disk_writes
+    plugin: downtime_logger.detectors.disk_detector:DiskActivityDetector
+    weight: 0.6
+    options:
+      paths:
+        - /data/raw
+        - /data/staging
+      idle_seconds: 60
+      poll_s: 5
+      recursive: true
+
+  # 5) Logfile scanning. Lines matching down_patterns flip DOWN; up_patterns
+  #    flip UP. Standard Python regex.
+  - id: artdaq_log
+    plugin: downtime_logger.detectors.logfile_detector:LogfileDetector
+    weight: 0.4
+    options:
+      path: /var/log/artdaq/run.log
+      down_patterns:
+        - "RUN STOPPED"
+        - "FATAL"
+        - "\\bABORT\\b"
+      up_patterns:
+        - "RUN STARTED"
+      poll_s: 1

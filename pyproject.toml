@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mu2edaq-downtime-logger"
+version = "0.1.0"
+description = "Monitors the Mu2e DAQ system and records downtime events via pluggable detectors."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Mu2e DAQ" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+    "PySide6>=6.6",
+    "PyYAML>=6.0",
+    "pyzmq>=25",
+    "zeep>=4.2",
+    "watchdog>=3.0",
+    "SQLAlchemy>=2.0",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]
+dev = [
+    "pytest>=7.4",
+    "pytest-qt>=4.4",
+]
+
+[project.scripts]
+mu2edaq-downtime-logger = "downtime_logger.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

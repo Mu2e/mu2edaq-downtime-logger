@@ -1,0 +1,7 @@
+# Dev / CI dependencies (testing). Pulls in runtime deps too.
+# Install with:  pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest>=7.4
+pytest-qt>=4.4

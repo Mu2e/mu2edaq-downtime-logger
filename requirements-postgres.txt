@@ -1,0 +1,6 @@
+# Optional: PostgreSQL driver, if you swap SQLiteBackend for a Postgres URL.
+# Install with:  pip install -r requirements-postgres.txt
+
+-r requirements.txt
+
+psycopg2-binary>=2.9
