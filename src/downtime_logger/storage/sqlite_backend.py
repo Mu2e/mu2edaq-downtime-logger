@@ -141,6 +141,15 @@ class SQLiteBackend(StorageBackend):
             row = s.get(_DowntimeRow, event_id)
             return _to_event(row) if row else None
 
+    def delete_event(self, event_id: int) -> bool:
+        with Session(self._engine) as s:
+            row = s.get(_DowntimeRow, event_id)
+            if row is None:
+                return False
+            s.delete(row)
+            s.commit()
+            return True
+
     def list_events(self, limit: int = 200) -> list[DowntimeEvent]:
         with Session(self._engine) as s:
             stmt = (

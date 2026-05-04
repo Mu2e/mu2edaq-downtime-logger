@@ -32,6 +32,9 @@ mu2edaq-downtime-logger = "downtime_logger.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+downtime_logger = ["resources/*.png", "resources/*.svg"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

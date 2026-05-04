@@ -5,18 +5,23 @@ the main window's history table.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDateTime, Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from ..core.event import DowntimeEvent
@@ -70,6 +75,36 @@ class EventEditor(QDialog):
         self._notes.setPlaceholderText("Free-form notes (optional)")
         form.addRow("Notes", self._notes)
 
+        self._started_edit = QDateTimeEdit()
+        self._started_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        self._started_edit.setCalendarPopup(True)
+        self._started_edit.setDateTime(
+            QDateTime.fromSecsSinceEpoch(int(event.started_at.timestamp()))
+        )
+        form.addRow("Started at", self._started_edit)
+
+        end_row = QWidget()
+        end_layout = QHBoxLayout(end_row)
+        end_layout.setContentsMargins(0, 0, 0, 0)
+        self._ended_edit = QDateTimeEdit()
+        self._ended_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        self._ended_edit.setCalendarPopup(True)
+        if event.ended_at is not None:
+            self._ended_edit.setDateTime(
+                QDateTime.fromSecsSinceEpoch(int(event.ended_at.timestamp()))
+            )
+        else:
+            self._ended_edit.setDateTime(QDateTime.currentDateTime())
+        self._ongoing = QCheckBox("Ongoing")
+        self._ongoing.setChecked(event.ended_at is None)
+        self._ongoing.toggled.connect(
+            lambda checked: self._ended_edit.setEnabled(not checked)
+        )
+        self._ended_edit.setEnabled(not self._ongoing.isChecked())
+        end_layout.addWidget(self._ended_edit, 1)
+        end_layout.addWidget(self._ongoing)
+        form.addRow("Ended at", end_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
@@ -103,6 +138,15 @@ class EventEditor(QDialog):
         self._event.subsystem = self._subsystem.text().strip() or None
         self._event.cause = self._cause.text().strip() or None
         self._event.notes = self._notes.toPlainText().strip() or None
+        self._event.started_at = datetime.fromtimestamp(
+            self._started_edit.dateTime().toSecsSinceEpoch(), tz=timezone.utc
+        )
+        if self._ongoing.isChecked():
+            self._event.ended_at = None
+        else:
+            self._event.ended_at = datetime.fromtimestamp(
+                self._ended_edit.dateTime().toSecsSinceEpoch(), tz=timezone.utc
+            )
         self.saved.emit(self._event)
         self.accept()
 

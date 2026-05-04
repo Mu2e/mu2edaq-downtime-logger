@@ -61,6 +61,53 @@ def test_event_editor_save_emits_signal(qtbot):
     assert ev.notes == "hot aisle alarm"
 
 
+def test_event_editor_can_set_end_time(qtbot):
+    ev = DowntimeEvent(id=99, opened_by="x")
+    assert ev.ended_at is None
+    dlg = EventEditor(ev)
+    qtbot.addWidget(dlg)
+
+    dlg._ongoing.setChecked(False)
+    dlg._on_save()
+
+    assert ev.ended_at is not None
+    assert ev.duration_seconds is not None
+
+
+def test_event_editor_in_create_mode_round_trips(qtbot):
+    ev = DowntimeEvent(opened_by="manual", score_at_open=0.0)
+    assert ev.id is None
+    dlg = EventEditor(ev, title="New downtime event")
+    qtbot.addWidget(dlg)
+
+    captured: list = []
+    dlg.saved.connect(captured.append)
+
+    dlg._cause.setText("manual entry — beam loss")
+    dlg._on_save()
+
+    assert captured and captured[0] is ev
+    assert ev.cause == "manual entry — beam loss"
+    assert ev.id is None  # storage layer assigns the id
+
+
+def test_main_window_emits_manual_end_for_open_event(qtbot):
+    w = MainWindow()
+    qtbot.addWidget(w)
+    base = datetime.now(timezone.utc)
+    w.set_events([
+        DowntimeEvent(id=7, started_at=base - timedelta(minutes=2), opened_by="udp"),
+    ])
+    received: list[int] = []
+    w.manual_end_requested.connect(received.append)
+
+    w._confirm_end = lambda eid: w.manual_end_requested.emit(eid)  # bypass dialog
+    w._on_context_menu_for_test = w._on_context_menu  # sanity reference
+    w.manual_end_requested.emit(7)
+
+    assert received == [7]
+
+
 def test_new_event_popup_is_non_modal(qtbot):
     ev = DowntimeEvent(opened_by="zmq")
     p = NewEventPopup(ev)

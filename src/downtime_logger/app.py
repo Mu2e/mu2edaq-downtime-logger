@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PySide6.QtCore import QObject, QThread, Slot
+from PySide6.QtCore import Qt, QMetaObject, QObject, QThread, Slot
 from PySide6.QtWidgets import QApplication
 
 from .config import AppConfig, DetectorSpec
@@ -73,7 +73,11 @@ class Controller(QObject):
         # --- UI ---------------------------------------------------------
         self._window = MainWindow()
         self._popup: Optional[NewEventPopup] = None
-        self._tray = TrayIcon(on_show=self._show_window, on_quit=self._quit)
+        self._tray = TrayIcon(
+            on_show=self._show_window,
+            on_quit=self._quit,
+            on_toggle_enabled=self._sm.set_enabled,
+        )
         self._tray.show()
 
         # --- wiring -----------------------------------------------------
@@ -87,10 +91,25 @@ class Controller(QObject):
         self._sm.event_closed.connect(self._on_event_closed)
 
         self._window.event_save_requested.connect(self._on_event_save)
+        self._window.event_create_requested.connect(self._on_event_create)
         self._window.refresh_requested.connect(self._refresh_history)
+        self._window.manual_end_requested.connect(self._on_manual_end)
+        self._window.event_delete_requested.connect(self._on_event_delete)
+        self._window.enabled_toggled.connect(self._sm.set_enabled)
+        self._sm.enabled_changed.connect(self._window.set_enabled_mode)
+        self._sm.enabled_changed.connect(self._tray.set_enabled_mode)
+        # Default state is disabled; reflect it in the UI now.
+        self._window.set_enabled_mode(self._sm.enabled)
+        self._tray.set_enabled_mode(self._sm.enabled)
 
         self._refresh_history()
         self._window.show()
+
+        # Catch any quit path (Cmd-Q on macOS, dock close, programmatic
+        # app.quit()) so worker threads are always stopped cleanly. Without
+        # this, ~QThread fires while the worker is still running and aborts.
+        self._cleaned_up = False
+        app.aboutToQuit.connect(self._cleanup)
 
     # --- detector lifecycle ---------------------------------------------
 
@@ -101,12 +120,23 @@ class Controller(QObject):
         thread = QThread()
         thread.setObjectName(f"detector-{spec.id}")
         det.moveToThread(thread)
-        det.state_changed.connect(self._sm.on_state_changed)
-        thread.started.connect(det.start)
-        thread.finished.connect(det.stop)
+        # Force queued so state_changed always lands on the main (Qt GUI)
+        # thread; the state machine's debounce QTimer lives there and
+        # cannot be manipulated from a worker thread (macOS will SIGABRT).
+        det.state_changed.connect(
+            self._sm.on_state_changed, Qt.ConnectionType.QueuedConnection
+        )
+        thread.finished.connect(det.stop, Qt.ConnectionType.DirectConnection)
         self._threads.append(thread)
         self._detectors.append(det)
         thread.start()
+        # PySide6's connect to thread.started runs the slot on the main
+        # thread, which gives any QTimer/QSocketNotifier created inside
+        # start() the wrong (main) affinity. Explicitly queue start onto
+        # the detector's worker thread once the thread has spun up.
+        QMetaObject.invokeMethod(
+            det, "start", Qt.ConnectionType.QueuedConnection
+        )
         log.info("started detector %s (%s, weight=%.2f)",
                  spec.id, spec.plugin, spec.weight)
 
@@ -151,10 +181,57 @@ class Controller(QObject):
 
     @Slot(object)
     def _on_event_save(self, event: DowntimeEvent) -> None:
+        sm_event = self._sm.current_event
+        is_active = (
+            sm_event is not None and event.id is not None
+            and sm_event.id == event.id
+        )
+        if is_active and event.ended_at is not None:
+            self._sm.close_current_event(event.ended_at)
         try:
             self._storage.update_event(event)
         except Exception:
             log.exception("storage.update_event failed")
+        self._refresh_history()
+
+    @Slot(object)
+    def _on_event_create(self, event: DowntimeEvent) -> None:
+        if not event.opened_by:
+            event.opened_by = "manual"
+        try:
+            self._storage.open_event(event)
+        except Exception:
+            log.exception("storage.open_event (manual) failed")
+            return
+        log.info("Manual downtime event created (id=%s)", event.id)
+        self._refresh_history()
+
+    @Slot(int)
+    def _on_manual_end(self, event_id: int) -> None:
+        sm_event = self._sm.current_event
+        if sm_event is None or sm_event.id != event_id:
+            log.warning("manual end requested for non-active event %s", event_id)
+            return
+        self._sm.close_current_event()
+
+    @Slot(int)
+    def _on_event_delete(self, event_id: int) -> None:
+        sm_event = self._sm.current_event
+        if sm_event is not None and sm_event.id == event_id:
+            # Detach the SM from the row before we drop it so a later
+            # recovery doesn't try to update a deleted id.
+            self._sm.close_current_event()
+            if self._popup is not None:
+                self._popup.close()
+                self._popup = None
+        try:
+            deleted = self._storage.delete_event(event_id)
+        except Exception:
+            log.exception("storage.delete_event failed")
+            deleted = False
+        if deleted:
+            log.warning("Downtime event #%s permanently deleted", event_id)
+            self._snapshot.set_current_event(None)
         self._refresh_history()
 
     @Slot()
@@ -176,6 +253,15 @@ class Controller(QObject):
 
     @Slot()
     def _quit(self) -> None:
+        # Tray "Quit" path. The actual cleanup runs via app.aboutToQuit so
+        # all quit paths (tray, Cmd-Q, dock close) converge through it.
+        self._app.quit()
+
+    @Slot()
+    def _cleanup(self) -> None:
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         if self._web is not None:
             try:
                 self._web.stop()
@@ -184,9 +270,9 @@ class Controller(QObject):
         for t in self._threads:
             t.quit()
         for t in self._threads:
-            t.wait(2000)
+            if not t.wait(2000):
+                log.warning("thread %s did not exit within 2s", t.objectName())
         try:
             self._storage.close()
         except Exception:
             pass
-        self._app.quit()

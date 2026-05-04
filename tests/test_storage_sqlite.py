@@ -54,6 +54,18 @@ def test_list_events_orders_recent_first(backend):
     assert [r.opened_by for r in rows] == ["d2", "d1", "d0"]
 
 
+def test_delete_event_removes_row(backend):
+    e = DowntimeEvent(opened_by="zmq", score_at_open=0.8)
+    backend.open_event(e)
+    assert backend.get_event(e.id) is not None
+    assert backend.delete_event(e.id) is True
+    assert backend.get_event(e.id) is None
+
+
+def test_delete_event_missing_returns_false(backend):
+    assert backend.delete_event(9999) is False
+
+
 def test_log_readings_persists_all(backend):
     readings = [
         DetectorReading("a", DetectorState.DOWN, 0.5),

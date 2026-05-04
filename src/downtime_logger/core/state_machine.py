@@ -30,12 +30,14 @@ class StateMachine(QObject):
     score_changed = Signal(float, bool)      # score, is_down
     event_opened = Signal(object)            # DowntimeEvent
     event_closed = Signal(object)            # DowntimeEvent
+    enabled_changed = Signal(bool)
 
     def __init__(
         self,
         metric: Metric,
         debounce_seconds: float = 5.0,
         parent: Optional[QObject] = None,
+        enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self._metric = metric
@@ -43,6 +45,7 @@ class StateMachine(QObject):
         self._is_down = False
         self._current_event: Optional[DowntimeEvent] = None
         self._last_score = 0.0
+        self._enabled = enabled
 
         self._debounce_ms = int(debounce_seconds * 1000)
         self._pending_target: Optional[bool] = None
@@ -73,6 +76,47 @@ class StateMachine(QObject):
     @property
     def current_event(self) -> Optional[DowntimeEvent]:
         return self._current_event
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @Slot(bool)
+    def set_enabled(self, enabled: bool) -> None:
+        if self._enabled == enabled:
+            return
+        self._enabled = bool(enabled)
+        log.info("monitoring %s", "enabled" if self._enabled else "disabled")
+        self.enabled_changed.emit(self._enabled)
+        if not self._enabled:
+            # Drop any pending trip; on re-enable a fresh recompute decides.
+            self._pending_target = None
+            self._debounce_timer.stop()
+        else:
+            # Re-evaluate now so a stuck-down condition trips immediately
+            # rather than waiting for the next detector update.
+            self._recompute()
+
+    def close_current_event(self, when: Optional[datetime] = None) -> Optional[DowntimeEvent]:
+        """
+        Force-close the active event (manual end). If detectors are still
+        reporting DOWN, a fresh event will open after the next debounce.
+        """
+        if self._current_event is None:
+            return None
+        self._pending_target = None
+        self._debounce_timer.stop()
+        self._is_down = False
+        self._current_event.ended_at = when or datetime.now(timezone.utc)
+        self._current_event.updated_at = self._current_event.ended_at
+        closed = self._current_event
+        self._current_event = None
+        log.info(
+            "Downtime event manually closed (id=%s, duration=%.1fs)",
+            closed.id, closed.duration_seconds or 0.0,
+        )
+        self.event_closed.emit(closed)
+        return closed
 
     @property
     def readings(self) -> dict[str, DetectorReading]:
@@ -107,6 +151,13 @@ class StateMachine(QObject):
             return
         target = self._pending_target
         self._pending_target = None
+
+        if target and not self._enabled:
+            # Disabled: don't trip into a new downtime. Closing existing
+            # events is still allowed so a stale event from before disable
+            # can resolve naturally.
+            return
+
         self._is_down = target
 
         if target:

@@ -29,6 +29,10 @@ class StorageBackend(ABC):
         ...
 
     @abstractmethod
+    def delete_event(self, event_id: int) -> bool:
+        """Permanently remove an event. Returns True if a row was deleted."""
+
+    @abstractmethod
     def list_events(self, limit: int = 200) -> list[DowntimeEvent]:
         """Most-recent-first."""
 
