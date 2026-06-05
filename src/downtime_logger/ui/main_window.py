@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
     event_create_requested = Signal(object)  # DowntimeEvent (id is None)
     refresh_requested = Signal()
     manual_end_requested = Signal(int)  # event id
-    event_delete_requested = Signal(int)  # event id
+    events_delete_requested = Signal(list)  # list[int] event ids
     enabled_toggled = Signal(bool)
 
     def __init__(self) -> None:
@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self._table.cellDoubleClicked.connect(self._on_row_activated)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
@@ -202,14 +203,26 @@ class MainWindow(QMainWindow):
     @Slot(QPoint)
     def _on_context_menu(self, pos: QPoint) -> None:
         menu = QMenu(self._table)
-        index = self._table.indexAt(pos)
-        row = index.row() if index.isValid() else -1
-        ev: Optional[DowntimeEvent] = (
-            self._events[row] if 0 <= row < len(self._events) else None
-        )
-        if ev is not None:
+
+        # Rows currently highlighted in the selection model.
+        selected_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        clicked_row = self._table.indexAt(pos).row()
+
+        # If the right-click landed outside the current selection, treat it as
+        # a single-row operation on just the clicked row.
+        if clicked_row not in selected_rows:
+            selected_rows = [clicked_row] if clicked_row >= 0 else []
+
+        evs: list[DowntimeEvent] = [
+            self._events[r] for r in selected_rows if 0 <= r < len(self._events)
+        ]
+
+        if len(evs) == 1:
+            ev = evs[0]
             edit_action = QAction("Edit…", menu)
-            edit_action.triggered.connect(lambda: self._on_row_activated(row, 0))
+            edit_action.triggered.connect(
+                lambda: self._on_row_activated(selected_rows[0], 0)
+            )
             menu.addAction(edit_action)
             if ev.is_open and ev.id is not None:
                 end_action = QAction("End downtime now", menu)
@@ -218,9 +231,27 @@ class MainWindow(QMainWindow):
             if ev.id is not None:
                 menu.addSeparator()
                 delete_action = QAction("Delete event…", menu)
-                delete_action.triggered.connect(lambda: self._confirm_delete(ev))
+                delete_action.triggered.connect(lambda: self._confirm_delete(evs))
                 menu.addAction(delete_action)
             menu.addSeparator()
+        elif len(evs) > 1:
+            # For multi-select, offer end only when exactly one open event is
+            # selected (only one event can be active in the state machine at a
+            # time, so offering bulk-end on several open rows would be confusing).
+            open_evs = [e for e in evs if e.is_open and e.id is not None]
+            if len(open_evs) == 1:
+                eid = open_evs[0].id
+                end_action = QAction(f"End downtime now (event #{eid})", menu)
+                end_action.triggered.connect(lambda: self._confirm_end(eid))
+                menu.addAction(end_action)
+            deletable = [e for e in evs if e.id is not None]
+            if deletable:
+                menu.addSeparator()
+                delete_action = QAction(f"Delete {len(deletable)} events…", menu)
+                delete_action.triggered.connect(lambda: self._confirm_delete(deletable))
+                menu.addAction(delete_action)
+            menu.addSeparator()
+
         new_action = QAction("New event…", menu)
         new_action.triggered.connect(self._open_create_dialog)
         menu.addAction(new_action)
@@ -255,23 +286,35 @@ class MainWindow(QMainWindow):
         if ans == QMessageBox.StandardButton.Yes:
             self.manual_end_requested.emit(event_id)
 
-    def _confirm_delete(self, ev: DowntimeEvent) -> None:
-        started = _fmt_dt(ev.started_at)
+    def _confirm_delete(self, evs: list[DowntimeEvent]) -> None:
+        ids = [e.id for e in evs if e.id is not None]
+        if not ids:
+            return
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Permanently delete event?")
-        box.setText(
-            f"<b>Permanently delete downtime event #{ev.id}?</b>"
-        )
-        box.setInformativeText(
-            f"Started: {started}<br>"
-            f"Cause: {ev.cause or '(none)'}<br><br>"
-            "<b>This cannot be undone.</b> The event row will be removed "
-            "from the database and the shift history. Detector reading "
-            "logs are not affected.<br><br>"
-            "Only delete events that were created in error (e.g. test runs "
-            "or false triggers). For real downtime, edit the record instead."
-        )
+        if len(ids) == 1:
+            ev = evs[0]
+            box.setWindowTitle("Permanently delete event?")
+            box.setText(f"<b>Permanently delete downtime event #{ev.id}?</b>")
+            box.setInformativeText(
+                f"Started: {_fmt_dt(ev.started_at)}<br>"
+                f"Cause: {ev.cause or '(none)'}<br><br>"
+                "<b>This cannot be undone.</b> The event row will be removed "
+                "from the database and the shift history. Detector reading "
+                "logs are not affected.<br><br>"
+                "Only delete events that were created in error (e.g. test runs "
+                "or false triggers). For real downtime, edit the record instead."
+            )
+        else:
+            id_list = ", ".join(f"#{i}" for i in ids)
+            box.setWindowTitle(f"Permanently delete {len(ids)} events?")
+            box.setText(f"<b>Permanently delete {len(ids)} downtime events?</b>")
+            box.setInformativeText(
+                f"Events: {id_list}<br><br>"
+                "<b>This cannot be undone.</b> All selected event rows will be "
+                "removed from the database and the shift history. Detector "
+                "reading logs are not affected."
+            )
         box.setTextFormat(Qt.TextFormat.RichText)
         box.setStandardButtons(
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes
@@ -279,5 +322,5 @@ class MainWindow(QMainWindow):
         yes = box.button(QMessageBox.StandardButton.Yes)
         yes.setText("Delete permanently")
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() == QMessageBox.StandardButton.Yes and ev.id is not None:
-            self.event_delete_requested.emit(ev.id)
+        if box.exec() == QMessageBox.StandardButton.Yes:
+            self.events_delete_requested.emit(ids)
