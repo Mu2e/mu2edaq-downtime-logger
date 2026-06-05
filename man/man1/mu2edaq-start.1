@@ -1,0 +1,94 @@
+.TH MU2EDAQ\-START 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-start \- start the mu2edaq\-downtime\-logger application
+.SH SYNOPSIS
+.B start\-mu2edaq\-downtime\-logger.sh
+[\fB\-\-config\fR \fIFILE\fR]
+[\fB\-\-log\-level\fR \fILEVEL\fR]
+[\fB\-\-log\-file\fR \fIFILE\fR]
+[\fB\-\-foreground\fR]
+[\fB\-\-\fR \fIEXTRA_ARGS\fR...]
+.SH DESCRIPTION
+.B start\-mu2edaq\-downtime\-logger.sh
+activates the Python virtual environment and launches
+.BR mu2edaq\-downtime\-logger (1).
+By default the application is started in the background; a PID file is
+written to prevent accidental double-starts.
+.PP
+If no virtual environment is found under \fIvenv/\fR the script runs
+.B bootstrap.sh
+automatically before launching the application.
+.PP
+Background output (stdout and stderr) is appended to
+\fImu2edaq\-downtime\-logger.log\fR in the project directory unless
+\fB\-\-log\-file\fR is specified.
+.SH OPTIONS
+.TP
+\fB\-\-config\fR \fIFILE\fR
+Path to the YAML configuration file.
+Default: \fBconfig/local.yaml\fR.
+.TP
+\fB\-\-log\-level\fR \fILEVEL\fR
+Application log level: \fBDEBUG\fR, \fBINFO\fR, \fBWARNING\fR, or
+\fBERROR\fR. Default: \fBINFO\fR.
+.TP
+\fB\-\-log\-file\fR \fIFILE\fR
+Redirect background output to \fIFILE\fR instead of the default log file.
+.TP
+.B \-\-foreground
+Run the application in the foreground instead of the background.
+The PID file is not written in foreground mode.
+.TP
+\fB\-\-\fR \fIEXTRA_ARGS\fR
+All arguments after \fB\-\-\fR are passed directly to
+\fBmu2edaq\-downtime\-logger\fR.
+.TP
+.B \-h\fR, \fB\-\-help
+Print a usage summary and exit.
+.SH FILES
+.TP
+.I mu2edaq\-downtime\-logger.pid
+PID file written when the application starts in background mode.
+Removed automatically on clean stop.
+.TP
+.I mu2edaq\-downtime\-logger.log
+Default log file for background output.
+.TP
+.I venv/
+Python virtual environment. Created by \fBbootstrap.sh\fR if absent.
+.TP
+.I config/local.yaml
+Default configuration file.
+.SH EXIT STATUS
+Exits non-zero if the application is already running (stale PID file
+excepted) or if a required option is missing.
+.SH EXAMPLES
+Start with the local development configuration:
+.PP
+.RS
+.nf
+./start\-mu2edaq\-downtime\-logger.sh
+.fi
+.RE
+.PP
+Start with the production configuration and a custom log file:
+.PP
+.RS
+.nf
+./start\-mu2edaq\-downtime\-logger.sh \\
+    \-\-config config/config.example.yaml \\
+    \-\-log\-file /var/log/mu2edaq/downtime.log
+.fi
+.RE
+.PP
+Run in the foreground with debug logging:
+.PP
+.RS
+.nf
+./start\-mu2edaq\-downtime\-logger.sh \-\-foreground \-\-log\-level DEBUG
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-stop (1),
+.BR mu2edaq\-bootstrap (1),
+.BR mu2edaq\-downtime\-logger (1)

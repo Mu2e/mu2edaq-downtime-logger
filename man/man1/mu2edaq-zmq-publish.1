@@ -1,0 +1,65 @@
+.TH MU2EDAQ\-ZMQ\-PUBLISH 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-zmq\-publish \- ZeroMQ PUB diagnostic for ZmqDetector
+.SH SYNOPSIS
+.B python \-m tools.zmq_publish
+[\fB\-\-endpoint\fR \fIEP\fR]
+[\fB\-\-topic\fR \fITOPIC\fR]
+[\fB\-\-state\fR \fISTATE\fR]
+[\fB\-\-interval\fR \fISECS\fR]
+[\fB\-\-once\fR]
+[\fB\-\-message\fR \fITEXT\fR]
+.SH DESCRIPTION
+.B zmq_publish
+binds a ZeroMQ PUB socket and publishes state messages or heartbeats in the
+format that
+.B ZmqDetector
+expects. Use it to simulate a running or stopped DAQ without live hardware.
+.PP
+By default the tool publishes every second until interrupted with Ctrl-C.
+.SH OPTIONS
+.TP
+\fB\-\-endpoint\fR \fIEP\fR
+ZMQ bind endpoint. Default: \fBtcp://*:5555\fR.
+.TP
+\fB\-\-topic\fR \fITOPIC\fR
+Topic prefix prepended to the message body. Default: empty string
+(subscribe-all).
+.TP
+\fB\-\-state\fR \fI{running,stopped,heartbeat}\fR
+Predefined state to publish. Produces the message body
+\fBRUN STATE running\fR, \fBRUN STATE stopped\fR, or
+\fBheartbeat tick\fR respectively. Overridden by \fB\-\-message\fR.
+Default: \fBrunning\fR.
+.TP
+\fB\-\-interval\fR \fISECS\fR
+Seconds between publishes. Default: \fB1.0\fR.
+.TP
+.B \-\-once
+Publish a single message and exit.
+.TP
+\fB\-\-message\fR \fITEXT\fR
+Override the message body with arbitrary text, ignoring \fB\-\-state\fR.
+.SH NOTES
+ZMQ PUB sockets drop messages until subscribers have completed the
+handshake. The tool sleeps 300 ms after binding before sending the first
+message to allow slow-joiner subscribers to connect.
+.SH EXAMPLES
+Simulate a running DAQ:
+.PP
+.RS
+.nf
+python \-m tools.zmq_publish \-\-state running \-\-interval 1
+.fi
+.RE
+.PP
+Send a one-shot stop signal:
+.PP
+.RS
+.nf
+python \-m tools.zmq_publish \-\-state stopped \-\-once
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-udp\-broadcast (1),
+.BR mu2edaq\-downtime\-logger (1)
