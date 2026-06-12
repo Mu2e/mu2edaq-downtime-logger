@@ -1,0 +1,64 @@
+.TH MU2EDAQ\-LOG\-WRITER 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-log\-writer \- logfile diagnostic for LogfileDetector
+.SH SYNOPSIS
+.B python \-m tools.log_writer
+\fB\-\-path\fR \fIFILE\fR
+\fB\-\-message\fR \fITEXT\fR
+[\fB\-\-count\fR \fIN\fR]
+[\fB\-\-interval\fR \fISECS\fR]
+.SH DESCRIPTION
+.B log_writer
+appends timestamped lines to a log file so that
+.B LogfileDetector
+picks them up during its next poll cycle.
+.PP
+Each line is prefixed with an ISO-8601 UTC timestamp followed by the
+message text. The parent directory of the target file is created
+automatically if absent.
+.PP
+Use message text that matches the \fBdown_patterns\fR or \fBup_patterns\fR
+regexes in your detector configuration to simulate transitions.
+.SH OPTIONS
+.TP
+\fB\-\-path\fR \fIFILE\fR
+Logfile to append to. Required. Parent directory is created if absent.
+.TP
+\fB\-\-message\fR \fITEXT\fR
+Line text to write. Should match a regex in the detector's
+\fBdown_patterns\fR or \fBup_patterns\fR. Required.
+.TP
+\fB\-\-count\fR \fIN\fR
+Number of lines to write. Default: \fB1\fR.
+.TP
+\fB\-\-interval\fR \fISECS\fR
+Seconds between lines when \fB\-\-count\fR > 1. Default: \fB1.0\fR.
+.SH EXAMPLES
+Trigger a DOWN transition:
+.PP
+.RS
+.nf
+python \-m tools.log_writer \-\-path /var/log/artdaq/run.log \-\-message "RUN STOPPED"
+.fi
+.RE
+.PP
+Trigger an UP transition:
+.PP
+.RS
+.nf
+python \-m tools.log_writer \-\-path /var/log/artdaq/run.log \-\-message "RUN STARTED"
+.fi
+.RE
+.PP
+Write 5 FATAL lines with a 2-second gap between each:
+.PP
+.RS
+.nf
+python \-m tools.log_writer \\
+    \-\-path /var/log/artdaq/run.log \\
+    \-\-message "FATAL error" \-\-count 5 \-\-interval 2
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-disk\-writer (1),
+.BR mu2edaq\-downtime\-logger (1)

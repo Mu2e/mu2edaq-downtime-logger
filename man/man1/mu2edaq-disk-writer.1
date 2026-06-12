@@ -1,0 +1,51 @@
+.TH MU2EDAQ\-DISK\-WRITER 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-disk\-writer \- disk-activity diagnostic for DiskActivityDetector
+.SH SYNOPSIS
+.B python \-m tools.disk_writer
+\fB\-\-path\fR \fIDIR\fR
+[\fB\-\-interval\fR \fISECS\fR]
+[\fB\-\-filename\fR \fINAME\fR]
+[\fB\-\-once\fR]
+.SH DESCRIPTION
+.B disk_writer
+periodically creates and updates a file inside a watched directory so that
+.B DiskActivityDetector
+sees fresh filesystem modifications and reports the DAQ as UP.
+.PP
+The target directory is created if it does not exist. The tool appends the
+current Unix timestamp to the file on each write and also calls
+\fButime\fR(2) to update the modification time, satisfying detectors that
+check either file content or mtime.
+.SH OPTIONS
+.TP
+\fB\-\-path\fR \fIDIR\fR
+Directory to write into. Created automatically if absent. Required.
+.TP
+\fB\-\-interval\fR \fISECS\fR
+Seconds between writes. Default: \fB5.0\fR.
+.TP
+\fB\-\-filename\fR \fINAME\fR
+Filename to create inside \fIDIR\fR. Default: \fB.heartbeat\fR.
+.TP
+.B \-\-once
+Write once and exit instead of looping.
+.SH EXAMPLES
+Keep \fI/data/raw\fR active every 5 seconds:
+.PP
+.RS
+.nf
+python \-m tools.disk_writer \-\-path /data/raw \-\-interval 5
+.fi
+.RE
+.PP
+Write once to \fI/tmp/daq\-test\fR:
+.PP
+.RS
+.nf
+python \-m tools.disk_writer \-\-path /tmp/daq\-test \-\-once
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-log\-writer (1),
+.BR mu2edaq\-downtime\-logger (1)

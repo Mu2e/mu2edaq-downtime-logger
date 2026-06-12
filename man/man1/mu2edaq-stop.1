@@ -1,0 +1,62 @@
+.TH MU2EDAQ\-STOP 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-stop \- stop the mu2edaq\-downtime\-logger application
+.SH SYNOPSIS
+.B stop\-mu2edaq\-downtime\-logger.sh
+[\fB\-\-timeout\fR \fISECS\fR]
+[\fB\-\-force\fR]
+.SH DESCRIPTION
+.B stop\-mu2edaq\-downtime\-logger.sh
+stops a
+.BR mu2edaq\-downtime\-logger (1)
+process that was started with
+.BR start\-mu2edaq\-downtime\-logger.sh (1).
+.PP
+The script reads the PID from \fImu2edaq\-downtime\-logger.pid\fR, sends
+\fBSIGTERM\fR, and waits up to \fB\-\-timeout\fR seconds for the process to
+exit cleanly. If the process has not exited by the timeout, \fBSIGKILL\fR
+is sent. The PID file is removed on exit.
+.PP
+If no PID file is present the script exits with status 0 without error.
+A stale PID file (process no longer running) is detected and removed
+automatically.
+.PP
+After the process stops, the script removes the local test directory
+\fI/tmp/daq\-test\fR if it exists, cleaning up files left by the
+diagnostic tools.
+.SH OPTIONS
+.TP
+\fB\-\-timeout\fR \fISECS\fR
+Seconds to wait for a clean \fBSIGTERM\fR shutdown before escalating to
+\fBSIGKILL\fR. Default: \fB10\fR.
+.TP
+.B \-\-force
+Send \fBSIGKILL\fR immediately without attempting a graceful shutdown.
+.TP
+.B \-h\fR, \fB\-\-help
+Print a usage summary and exit.
+.SH FILES
+.TP
+.I mu2edaq\-downtime\-logger.pid
+PID file read by this script. Must exist in the project root directory.
+.SH EXIT STATUS
+Exits 0 in all cases except unknown option errors.
+.SH EXAMPLES
+Stop with a 30-second graceful timeout:
+.PP
+.RS
+.nf
+./stop\-mu2edaq\-downtime\-logger.sh \-\-timeout 30
+.fi
+.RE
+.PP
+Kill immediately:
+.PP
+.RS
+.nf
+./stop\-mu2edaq\-downtime\-logger.sh \-\-force
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-start (1),
+.BR mu2edaq\-downtime\-logger (1)

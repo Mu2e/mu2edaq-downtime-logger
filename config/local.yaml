@@ -9,7 +9,7 @@ storage:
 webserver:
   enabled: true
   bind: "127.0.0.1"
-  port: 8088
+  port: 8001
   refresh_seconds: 3
 
 metric:

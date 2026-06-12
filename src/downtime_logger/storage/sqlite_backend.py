@@ -9,7 +9,9 @@ from sqlalchemy import (
     Float,
     Integer,
     String,
+    and_,
     create_engine,
+    or_,
     select,
 )
 from sqlalchemy.orm import (
@@ -155,6 +157,29 @@ class SQLiteBackend(StorageBackend):
             stmt = (
                 select(_DowntimeRow)
                 .order_by(_DowntimeRow.started_at.desc())
+                .limit(limit)
+            )
+            return [_to_event(r) for r in s.scalars(stmt).all()]
+
+    def list_events_in_range(
+        self,
+        start: datetime,
+        end: datetime,
+        limit: int = 5000,
+    ) -> list[DowntimeEvent]:
+        with Session(self._engine) as s:
+            stmt = (
+                select(_DowntimeRow)
+                .where(
+                    and_(
+                        _DowntimeRow.started_at < end,
+                        or_(
+                            _DowntimeRow.ended_at > start,
+                            _DowntimeRow.ended_at.is_(None),
+                        ),
+                    )
+                )
+                .order_by(_DowntimeRow.started_at.asc())
                 .limit(limit)
             )
             return [_to_event(r) for r in s.scalars(stmt).all()]

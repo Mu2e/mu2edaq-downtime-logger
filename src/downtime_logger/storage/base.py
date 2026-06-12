@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Iterable, Optional
 
 from ..core.event import DetectorReading, DowntimeEvent
@@ -35,6 +36,15 @@ class StorageBackend(ABC):
     @abstractmethod
     def list_events(self, limit: int = 200) -> list[DowntimeEvent]:
         """Most-recent-first."""
+
+    @abstractmethod
+    def list_events_in_range(
+        self,
+        start: datetime,
+        end: datetime,
+        limit: int = 5000,
+    ) -> list[DowntimeEvent]:
+        """Events that overlap [start, end], oldest-first."""
 
     @abstractmethod
     def log_readings(self, score: float, readings: Iterable[DetectorReading]) -> None:

@@ -6,37 +6,86 @@ weighted score). When the score crosses a configurable threshold a dismissible p
 prompts the shifter for details; the event is closed automatically when the DAQ
 recovers and persisted to a swappable storage backend (SQLite by default).
 
-## Install
+## Quick start
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+./bootstrap.sh                  # create venv and install all dependencies
+./start-mu2edaq-downtime-logger.sh   # start in background (local config)
+./stop-mu2edaq-downtime-logger.sh    # stop cleanly
+```
 
-# Editable install (recommended for developers — uses pyproject.toml):
+## Install
+
+### Using bootstrap (recommended)
+
+```bash
+./bootstrap.sh           # runtime deps only
+./bootstrap.sh --dev     # + pytest / pytest-qt
+./bootstrap.sh --postgres  # + psycopg2-binary (PostgreSQL backend)
+./bootstrap.sh --recreate  # delete and rebuild the venv from scratch
+```
+
+### Manual
+
+```bash
+python -m venv venv && source venv/bin/activate
+
+# Editable install (uses pyproject.toml):
 pip install -e .[dev]
 
 # Or via requirements files:
-pip install -r requirements.txt          # runtime only
-pip install -r requirements-dev.txt      # runtime + test deps
-pip install -r requirements-postgres.txt # runtime + psycopg2
+pip install -r requirements.txt           # runtime only
+pip install -r requirements-dev.txt       # runtime + test deps
+pip install -r requirements-postgres.txt  # runtime + psycopg2
 ```
 
 ## Run
 
 ```bash
+# Foreground, pointing at the real DAQ:
+source venv/bin/activate
 mu2edaq-downtime-logger --config config/config.example.yaml
+
+# Background (with PID file and log):
+./start-mu2edaq-downtime-logger.sh --config config/config.example.yaml
+./start-mu2edaq-downtime-logger.sh --foreground   # stay in terminal
+./start-mu2edaq-downtime-logger.sh --log-file /var/log/downtime.log
+
+# Stop:
+./stop-mu2edaq-downtime-logger.sh
+./stop-mu2edaq-downtime-logger.sh --timeout 30
+./stop-mu2edaq-downtime-logger.sh --force   # immediate SIGKILL
 ```
+
+The start script automatically runs `bootstrap.sh` if no virtual environment is
+present, so a fresh machine only needs `./start-mu2edaq-downtime-logger.sh`.
 
 ## Configuration
 
-See `config/config.example.yaml` for the full schema. Top-level keys:
+See `config/config.example.yaml` for the full schema.
+`config/local.yaml` is a ready-to-use desktop development config that needs no
+external DAQ infrastructure.
 
-- `storage` — a single storage backend plugin (default: SQLite)
-- `metric` — the scoring/threshold module (default: `WeightedRatioMetric`)
-- `detectors` — list of enabled detector plugins, each with a `weight` and `options`
+Top-level keys:
 
-Plugins are referenced as `module.path:ClassName`. Add a new detector by dropping a
-module under `downtime_logger.detectors` (or any importable location) that subclasses
-`Detector`, then point at it from YAML.
+| Key | Purpose |
+|-----|---------|
+| `storage` | Storage backend plugin (default: SQLite) |
+| `metric` | Scoring / threshold module |
+| `detectors` | List of detector plugins, each with a `weight` and `options` |
+| `webserver` | Optional read-only HTTP interface |
+
+Plugins are referenced as `module.path:ClassName`. To add a new detector, drop a
+module anywhere on `PYTHONPATH` that subclasses
+`downtime_logger.detectors.base.Detector` and point at it from YAML.
+
+### Key metric options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `trip_threshold` | 0.6 | Weighted score ≥ this opens a downtime event |
+| `clear_threshold` | 0.2 | Score ≤ this while an event is open closes it |
+| `debounce_seconds` | 5 | Quiet period before state changes are acted on |
 
 ## Architecture
 
@@ -45,28 +94,101 @@ detectors (QThreads) --signals--> StateMachine --DowntimeEvent--> Storage
                                        |                            ^
                                        +--> Qt UI (popup + history) |
                                        +--> SnapshotStore <-- WebServer (thread)
-                                                                 (read-only HTTP)
 ```
 
-## Remote view
+- **Detectors** run each in their own `QThread`, emitting `state_changed` signals.
+- **StateMachine** lives on the Qt main thread; its debounce `QTimer` requires it.
+- **WebServer** runs in a daemon thread; it reads from `SnapshotStore` (thread-safe)
+  and queries storage directly (SQLAlchemy gives each thread its own connection).
+- **Storage** is called only from the Qt main thread (or with SQLAlchemy's
+  `check_same_thread=False` when the web server reads).
 
-When `webserver.enabled: true` in the config, the application also serves a
-read-only status page and JSON API on the configured port:
+## Qt interface
 
-- `GET /` — auto-refreshing HTML status page
-- `GET /api/status` — current score, per-detector states, active event
-- `GET /api/events` — recent events
-- `GET /api/events/<id>` — single event
-- `GET /healthz` — liveness probe
+The main window has two panels:
 
-Editing event details is intentionally *not* exposed over HTTP — that
-happens through the Qt UI on the console machine.
+**Live status (top)** — current detector states, weighted score, and active event.
+Right-click for a context menu with a manual "New event…" option.
 
-The `Metric` class is intentionally isolated in `core/metric.py`; replace it (or
-swap implementations via YAML) without touching detectors, storage, or UI.
+**Downtime history (bottom)** — table of all recorded events, most-recent first.
+- Double-click a row to open the event editor.
+- Right-click for a context menu: **Edit…**, **End downtime now** (open events),
+  **Delete event…**, **New event…**.
+- Select multiple rows with Shift+click or Ctrl+click to apply context menu
+  operations to all selected events at once. Bulk-delete shows a confirmation
+  dialog listing all affected event IDs. "End downtime now" is offered for
+  multi-selections only when exactly one of the selected events is currently active.
+
+Delete operations are intentionally restricted to the Qt application.
+
+## Web interface
+
+When `webserver.enabled: true` in the config the application serves a read-only
+HTTP interface on the configured port.
+
+### Live status page
+
+`GET /` — auto-refreshing HTML page showing current score, detector states, active
+event, and recent event history. Refreshes every `refresh_seconds` seconds.
+
+### Summary and report page
+
+`GET /report` — date/time range picker with aggregate statistics for the selected
+window:
+
+- Summary cards: total events, total downtime, average duration, longest event.
+- Breakdown by category and by subsystem (event count + total / average downtime).
+- Full event table with durations clamped to the selected range (an event that
+  started before the range window only counts the time that falls within it).
+
+### JSON API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/status` | Current score, per-detector states, active event |
+| `GET /api/events` | Recent events (up to `history_limit`) |
+| `GET /api/events/<id>` | Single event by ID |
+| `GET /api/report?from=YYYY-MM-DDTHH:MM&to=YYYY-MM-DDTHH:MM` | Aggregate statistics and event list for a time range |
+| `GET /healthz` | Liveness probe (returns `ok`) |
+
+Editing event details is intentionally **not** exposed over HTTP — that happens
+through the Qt UI on the console machine.
+
+## Diagnostic tools
+
+The `tools/` directory contains scripts that emit the messages each detector
+consumes. Use them to verify a deployment without live DAQ hardware. See
+`tools/README.md` for usage examples.
+
+| Tool | Simulates |
+|------|-----------|
+| `tools/zmq_publish.py` | ZmqDetector heartbeats / state messages |
+| `tools/udp_broadcast.py` | UdpDetector heartbeat datagrams |
+| `tools/soap_server.py` | SoapDetector run-control SOAP endpoint |
+| `tools/disk_writer.py` | DiskActivityDetector file modifications |
+| `tools/log_writer.py` | LogfileDetector log-line patterns |
+
+## Man pages
+
+Man pages for all executables and tools are in `man/man1/`. To view:
+
+```bash
+man -l man/man1/mu2edaq-downtime-logger.1
+man -l man/man1/mu2edaq-start.1
+man -l man/man1/mu2edaq-stop.1
+man -l man/man1/mu2edaq-bootstrap.1
+```
+
+Install system-wide (optional):
+
+```bash
+sudo cp man/man1/*.1 /usr/local/share/man/man1/
+sudo mandb   # Linux
+```
 
 ## Tests
 
 ```bash
+source venv/bin/activate
 pytest
 ```

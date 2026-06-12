@@ -1,0 +1,67 @@
+.TH MU2EDAQ\-UDP\-BROADCAST 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-udp\-broadcast \- UDP diagnostic for UdpDetector
+.SH SYNOPSIS
+.B python \-m tools.udp_broadcast
+[\fB\-\-host\fR \fIHOST\fR]
+[\fB\-\-port\fR \fIPORT\fR]
+[\fB\-\-state\fR \fISTATE\fR]
+[\fB\-\-interval\fR \fISECS\fR]
+[\fB\-\-once\fR]
+[\fB\-\-message\fR \fITEXT\fR]
+.SH DESCRIPTION
+.B udp_broadcast
+sends UDP datagrams to a host or broadcast address in the format that
+.B UdpDetector
+expects. Use it to simulate a running or stopped DAQ without live hardware.
+.PP
+The socket is configured with \fBSO_BROADCAST\fR so that the default
+broadcast address \fB255.255.255.255\fR works without additional setup.
+.SH OPTIONS
+.TP
+\fB\-\-host\fR \fIHOST\fR
+Target host or broadcast address. Default: \fB255.255.255.255\fR.
+.TP
+\fB\-\-port\fR \fIPORT\fR
+Target UDP port. Default: \fB9000\fR.
+.TP
+\fB\-\-state\fR \fI{running,stopped,heartbeat}\fR
+Predefined state. Produces message body \fBDAQ STATE running\fR,
+\fBDAQ STATE stopped\fR, or \fBheartbeat tick\fR. Overridden by
+\fB\-\-message\fR. Default: \fBrunning\fR.
+.TP
+\fB\-\-interval\fR \fISECS\fR
+Seconds between datagrams. Default: \fB1.0\fR.
+.TP
+.B \-\-once
+Send a single datagram and exit.
+.TP
+\fB\-\-message\fR \fITEXT\fR
+Override the datagram payload with arbitrary text.
+.SH EXAMPLES
+Broadcast a heartbeat every second to the local network:
+.PP
+.RS
+.nf
+python \-m tools.udp_broadcast \-\-state running
+.fi
+.RE
+.PP
+Send to a specific host on a non-default port:
+.PP
+.RS
+.nf
+python \-m tools.udp_broadcast \-\-host 192.168.1.100 \-\-port 9001 \-\-state running
+.fi
+.RE
+.PP
+Simulate a DAQ stop:
+.PP
+.RS
+.nf
+python \-m tools.udp_broadcast \-\-state stopped \-\-once
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-zmq\-publish (1),
+.BR mu2edaq\-downtime\-logger (1)

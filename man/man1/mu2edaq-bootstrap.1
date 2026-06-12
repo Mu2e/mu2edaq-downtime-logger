@@ -1,0 +1,87 @@
+.TH MU2EDAQ\-BOOTSTRAP 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-bootstrap \- create or update the Python virtual environment
+.SH SYNOPSIS
+.B bootstrap.sh
+[\fB\-\-dev\fR]
+[\fB\-\-postgres\fR]
+[\fB\-\-recreate\fR]
+.SH DESCRIPTION
+.B bootstrap.sh
+creates the Python virtual environment under \fIvenv/\fR in the project
+directory (if it does not already exist) and installs or upgrades all
+runtime dependencies declared in \fBpyproject.toml\fR.
+.PP
+Run this script once on a fresh checkout, and again whenever
+\fBpyproject.toml\fR or the requirements files change.
+.PP
+The
+.B start\-mu2edaq\-downtime\-logger.sh
+script calls
+.B bootstrap.sh
+automatically if no virtual environment is found.
+.SH OPTIONS
+.TP
+.B \-\-dev
+Also install development and test dependencies
+(\fBpytest\fR, \fBpytest-qt\fR).
+.TP
+.B \-\-postgres
+Also install \fBpsycopg2\-binary\fR for the optional PostgreSQL
+storage backend.
+.TP
+.B \-\-recreate
+Delete the existing \fIvenv/\fR directory and rebuild it from scratch.
+Useful when switching Python versions or resolving dependency conflicts.
+.TP
+.B \-h\fR, \fB\-\-help
+Print a usage summary and exit.
+.SH ENVIRONMENT
+.TP
+.B PYTHON
+Path to the Python interpreter to use when creating the virtual
+environment. Default: \fBpython3\fR.
+.SH FILES
+.TP
+.I venv/
+Python virtual environment directory created by this script.
+.TP
+.I pyproject.toml
+Primary dependency specification.
+.TP
+.I requirements.txt
+Runtime-only dependency pins.
+.TP
+.I requirements-dev.txt
+Runtime + test dependency pins.
+.TP
+.I requirements-postgres.txt
+Runtime + psycopg2 dependency pins.
+.SH EXAMPLES
+Standard first-time setup:
+.PP
+.RS
+.nf
+./bootstrap.sh
+.fi
+.RE
+.PP
+Set up with test tools and rebuild from scratch:
+.PP
+.RS
+.nf
+./bootstrap.sh \-\-dev \-\-recreate
+.fi
+.RE
+.PP
+Use a specific Python interpreter:
+.PP
+.RS
+.nf
+PYTHON=/usr/bin/python3.11 ./bootstrap.sh
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-start (1),
+.BR mu2edaq\-stop (1),
+.BR mu2edaq\-downtime\-logger (1)

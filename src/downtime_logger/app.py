@@ -11,6 +11,7 @@ Ownership rules:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, QMetaObject, QObject, QThread, Slot
@@ -59,16 +60,30 @@ class Controller(QObject):
         # --- snapshot + optional web server -----------------------------
         self._snapshot = SnapshotStore()
         self._web: Optional[WebServer] = None
+        self._responder = None
         if config.webserver.enabled:
+            web_port = int(os.environ.get("CRS_PORT_HTTP",
+                                          config.webserver.port))
             self._web = WebServer(
                 snapshot=self._snapshot,
                 storage=self._storage,
                 bind=config.webserver.bind,
-                port=config.webserver.port,
+                port=web_port,
                 refresh_seconds=config.webserver.refresh_seconds,
                 history_limit=config.webserver.history_limit,
             )
             self._web.start()
+
+            # Announce via mu2edaq-discovery once the web server is up.
+            # Optional dependency: the app runs normally without it.
+            try:
+                from mu2edaq_discovery import Responder
+                self._responder = Responder(
+                    name="Downtime Logger", app="downtime-logger",
+                    port=web_port, scheme="http")
+                self._responder.start()
+            except ImportError:
+                log.info("mu2edaq-discovery not installed; discovery disabled")
 
         # --- UI ---------------------------------------------------------
         self._window = MainWindow()
@@ -94,7 +109,7 @@ class Controller(QObject):
         self._window.event_create_requested.connect(self._on_event_create)
         self._window.refresh_requested.connect(self._refresh_history)
         self._window.manual_end_requested.connect(self._on_manual_end)
-        self._window.event_delete_requested.connect(self._on_event_delete)
+        self._window.events_delete_requested.connect(self._on_events_delete)
         self._window.enabled_toggled.connect(self._sm.set_enabled)
         self._sm.enabled_changed.connect(self._window.set_enabled_mode)
         self._sm.enabled_changed.connect(self._tray.set_enabled_mode)
@@ -214,23 +229,28 @@ class Controller(QObject):
             return
         self._sm.close_current_event()
 
-    @Slot(int)
-    def _on_event_delete(self, event_id: int) -> None:
+    @Slot(list)
+    def _on_events_delete(self, event_ids: list[int]) -> None:
         sm_event = self._sm.current_event
-        if sm_event is not None and sm_event.id == event_id:
-            # Detach the SM from the row before we drop it so a later
-            # recovery doesn't try to update a deleted id.
-            self._sm.close_current_event()
-            if self._popup is not None:
-                self._popup.close()
-                self._popup = None
-        try:
-            deleted = self._storage.delete_event(event_id)
-        except Exception:
-            log.exception("storage.delete_event failed")
-            deleted = False
-        if deleted:
-            log.warning("Downtime event #%s permanently deleted", event_id)
+        active_cleared = False
+        for event_id in event_ids:
+            if sm_event is not None and sm_event.id == event_id:
+                # Detach the SM from the row before we drop it so a later
+                # recovery doesn't try to update a deleted id.
+                self._sm.close_current_event()
+                if self._popup is not None:
+                    self._popup.close()
+                    self._popup = None
+                sm_event = None
+                active_cleared = True
+            try:
+                deleted = self._storage.delete_event(event_id)
+            except Exception:
+                log.exception("storage.delete_event failed for id=%s", event_id)
+                deleted = False
+            if deleted:
+                log.warning("Downtime event #%s permanently deleted", event_id)
+        if active_cleared:
             self._snapshot.set_current_event(None)
         self._refresh_history()
 
@@ -262,6 +282,11 @@ class Controller(QObject):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        if self._responder is not None:
+            try:
+                self._responder.stop()
+            except Exception:
+                log.exception("discovery responder stop failed")
         if self._web is not None:
             try:
                 self._web.stop()

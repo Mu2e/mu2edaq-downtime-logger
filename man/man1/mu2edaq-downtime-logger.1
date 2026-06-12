@@ -1,0 +1,123 @@
+.TH MU2EDAQ\-DOWNTIME\-LOGGER 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.SH NAME
+mu2edaq\-downtime\-logger \- monitor and record Mu2e DAQ downtime events
+.SH SYNOPSIS
+.B mu2edaq\-downtime\-logger
+\fB\-\-config\fR \fIFILE\fR
+[\fB\-\-log\-level\fR \fILEVEL\fR]
+.SH DESCRIPTION
+.B mu2edaq\-downtime\-logger
+is a Qt desktop application that monitors the Mu2e DAQ system and records
+downtime events to a persistent storage backend (SQLite by default).
+.PP
+Detection is plugin-based: any combination of ZeroMQ, UDP, SOAP,
+disk-activity, and log-file scanner detectors feed a weighted score.
+When the score crosses a configurable trip threshold a dismissible popup
+prompts the shifter for details (category, subsystem, cause, notes).
+The event is closed automatically when the score drops below the clear
+threshold and is persisted in the configured storage backend.
+.PP
+An optional read-only HTTP server exposes the current status, a summary
+and report page with date-range filtering, and a JSON API for dashboards
+and programmatic clients.
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fIFILE\fR
+Path to the YAML configuration file. Required.
+.TP
+\fB\-\-log\-level\fR \fILEVEL\fR
+Python logging level. One of \fBDEBUG\fR, \fBINFO\fR, \fBWARNING\fR,
+\fBERROR\fR. Default: \fBINFO\fR.
+.SH CONFIGURATION
+The configuration file is YAML. Key top-level sections:
+.TP
+.B storage
+Storage backend plugin and options. Default backend is SQLite.
+.TP
+.B metric
+Scoring plugin and threshold options (\fItrip_threshold\fR,
+\fIclear_threshold\fR, \fIdebounce_seconds\fR).
+.TP
+.B detectors
+List of detector plugins, each with an \fIid\fR, \fIplugin\fR path,
+\fIweight\fR, and plugin-specific \fIoptions\fR.
+.TP
+.B webserver
+Optional HTTP server configuration (\fIenabled\fR, \fIbind\fR, \fIport\fR,
+\fIrefresh_seconds\fR, \fIhistory_limit\fR).
+.PP
+See \fBconfig/config.example.yaml\fR for a fully annotated example.
+.SH QT INTERFACE
+The main window has two panels.
+.PP
+The \fBlive status\fR panel (top) shows current detector states, the
+weighted score, and the active event if any.
+Right-click for a context menu with a manual \fINew event\&...\fR option.
+.PP
+The \fBdowntime history\fR panel (bottom) shows all recorded events.
+Double-click a row to open the event editor.
+Right-click for a context menu: \fIEdit\&...\fR, \fIEnd downtime now\fR
+(open events only), \fIDelete event\&...\fR, and \fINew event\&...\fR.
+.PP
+Select multiple rows with Shift+click or Ctrl+click to apply context menu
+operations to all selected events simultaneously.
+Bulk delete shows a confirmation dialog listing all affected IDs.
+Delete operations are restricted to the Qt application and are not
+available via the web interface.
+.SH WEB INTERFACE
+When the web server is enabled the following routes are available:
+.TP
+.B GET /
+Auto-refreshing HTML status page.
+.TP
+.B GET /report
+Date/time range picker with summary statistics, per-category and
+per-subsystem breakdowns, and a full event listing with durations clamped
+to the selected window.
+.TP
+.B GET /api/status
+Current score, per-detector states, and active event as JSON.
+.TP
+.B GET /api/events
+Recent events (up to \fIhistory_limit\fR) as JSON.
+.TP
+.B GET /api/events/<id>
+Single event by ID as JSON.
+.TP
+.B GET /api/report?from=YYYY-MM-DDTHH:MM&to=YYYY-MM-DDTHH:MM
+Aggregate statistics and full event list for a time range as JSON.
+Defaults to the last 7 days if query parameters are omitted.
+.TP
+.B GET /healthz
+Liveness probe. Returns \fBok\fR.
+.SH FILES
+.TP
+.I config/config.example.yaml
+Annotated production configuration template.
+.TP
+.I config/local.yaml
+Desktop development configuration (no external DAQ required).
+.TP
+.I events.db
+Default SQLite database path (configurable via \fIstorage.options.path\fR).
+.SH EXAMPLES
+Run with the local development configuration:
+.PP
+.RS
+.nf
+source venv/bin/activate
+mu2edaq\-downtime\-logger \-\-config config/local.yaml
+.fi
+.RE
+.PP
+Run with debug logging:
+.PP
+.RS
+.nf
+mu2edaq\-downtime\-logger \-\-config config/local.yaml \-\-log\-level DEBUG
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-start (1),
+.BR mu2edaq\-stop (1),
+.BR mu2edaq\-bootstrap (1)
