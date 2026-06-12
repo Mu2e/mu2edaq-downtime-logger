@@ -11,6 +11,7 @@ Ownership rules:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, QMetaObject, QObject, QThread, Slot
@@ -59,16 +60,30 @@ class Controller(QObject):
         # --- snapshot + optional web server -----------------------------
         self._snapshot = SnapshotStore()
         self._web: Optional[WebServer] = None
+        self._responder = None
         if config.webserver.enabled:
+            web_port = int(os.environ.get("CRS_PORT_HTTP",
+                                          config.webserver.port))
             self._web = WebServer(
                 snapshot=self._snapshot,
                 storage=self._storage,
                 bind=config.webserver.bind,
-                port=config.webserver.port,
+                port=web_port,
                 refresh_seconds=config.webserver.refresh_seconds,
                 history_limit=config.webserver.history_limit,
             )
             self._web.start()
+
+            # Announce via mu2edaq-discovery once the web server is up.
+            # Optional dependency: the app runs normally without it.
+            try:
+                from mu2edaq_discovery import Responder
+                self._responder = Responder(
+                    name="Downtime Logger", app="downtime-logger",
+                    port=web_port, scheme="http")
+                self._responder.start()
+            except ImportError:
+                log.info("mu2edaq-discovery not installed; discovery disabled")
 
         # --- UI ---------------------------------------------------------
         self._window = MainWindow()
@@ -267,6 +282,11 @@ class Controller(QObject):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        if self._responder is not None:
+            try:
+                self._responder.stop()
+            except Exception:
+                log.exception("discovery responder stop failed")
         if self._web is not None:
             try:
                 self._web.stop()
