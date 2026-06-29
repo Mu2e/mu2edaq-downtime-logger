@@ -33,13 +33,31 @@ def main(argv: list[str] | None = None) -> int:
 
     controller = Controller(config, app)  # noqa: F841 — owned by app event loop
 
+    # Mu2e DAQ service discovery: if the web server is enabled, advertise its
+    # HTTP port so the app appears in mu2edaq-discover scans and the control
+    # room browser. Best-effort so a missing package never blocks startup.
+    responder = None
+    if config.webserver.enabled:
+        try:
+            from mu2edaq_discovery import Responder
+            responder = Responder(name="Downtime Logger", app="downtime-logger",
+                                  port=config.webserver.port, scheme="http")
+            responder.start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Discovery responder not started: %s", exc)
+
     # Allow Ctrl-C in the terminal to actually stop the Qt event loop.
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     timer = QTimer()
     timer.start(250)
     timer.timeout.connect(lambda: None)  # wakes the loop so signals are delivered
 
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        if responder is not None:
+            responder.stop()
 
 
 if __name__ == "__main__":
