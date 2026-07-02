@@ -7,7 +7,7 @@ name = "mu2edaq-downtime-logger"
 version = "0.1.0"
 description = "Monitors the Mu2e DAQ system and records downtime events via pluggable detectors."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [{ name = "Mu2e DAQ" }]
 license = { text = "Apache-2.0" }
 dependencies = [
