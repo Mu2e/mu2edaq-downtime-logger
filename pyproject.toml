@@ -17,6 +17,8 @@ dependencies = [
     "zeep>=4.2",
     "watchdog>=3.0",
     "SQLAlchemy>=2.0",
+    # Mu2e DAQ service discovery (stdlib-only; from the sibling submodule).
+    "mu2edaq-discovery",
 ]
 
 [project.optional-dependencies]
