@@ -55,6 +55,12 @@ source "$VENV_DIR/bin/activate"
 echo "--- Upgrading pip/setuptools/wheel"
 pip install --quiet --upgrade pip setuptools wheel
 
+# Prefer the sibling submodule checkout of mu2edaq-discovery when present.
+if [[ -d "$SCRIPT_DIR/../mu2edaq-discovery" ]]; then
+    echo "--- Installing mu2edaq-discovery from sibling checkout"
+    pip install --upgrade -e "$SCRIPT_DIR/../mu2edaq-discovery"
+fi
+
 if [[ -n "$EXTRAS" ]]; then
     echo "--- Installing package with extras: [$EXTRAS]"
     pip install --upgrade -e ".[$EXTRAS]"
