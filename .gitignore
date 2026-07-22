@@ -14,3 +14,7 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# Runtime state
+*.pid
+*.log
