@@ -17,12 +17,19 @@ dependencies = [
     "zeep>=4.2",
     "watchdog>=3.0",
     "SQLAlchemy>=2.0",
-    # Mu2e DAQ service discovery (stdlib-only; from the sibling submodule).
-    "mu2edaq-discovery",
+    # NOTE: mu2edaq-discovery is deliberately NOT listed here. It is not on
+    # PyPI, so naming it as a hard dependency makes `pip install .` fail
+    # outright. The runtime import is best-effort, so the app runs without it
+    # (auto-discovery simply stays off). Install it from the sibling checkout
+    # or a local wheel -- see the `discovery` extra below and
+    # mu2edaq-main/mu2edaq-install-discovery.sh.
 ]
 
 [project.optional-dependencies]
 postgres = ["psycopg2-binary>=2.9"]
+# Installable only from a local checkout/wheel, never from PyPI:
+#   pip install -e ../mu2edaq-discovery
+discovery = ["mu2edaq-discovery"]
 dev = [
     "pytest>=7.4",
     "pytest-qt>=4.4",
