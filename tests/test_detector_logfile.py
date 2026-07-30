@@ -4,6 +4,10 @@ synthetic file content. No QThread/QTimer is exercised here; the timer
 just calls ``_tick`` on the same thread, which is exactly what the test
 does explicitly.
 """
+import os
+
+import pytest
+
 from downtime_logger.core.event import DetectorState
 from downtime_logger.detectors.logfile_detector import LogfileDetector
 
@@ -73,8 +77,47 @@ def test_logfile_detector_handles_rotation(tmp_path):
     det._tick()
     assert seen[-1] == DetectorState.DOWN.value
 
-    # Simulate logrotate: replace the file entirely.
+    # Simulate logrotate by *replacing* the file (rename/create mode). This
+    # deletes the file while the detector holds it open -- a POSIX capability;
+    # Windows refuses to unlink an open file (WinError 32), and rotating that
+    # way against a running detector is itself blocked there. The copytruncate
+    # mode below is the cross-platform path and is tested separately.
+    if os.name != "posix":
+        pytest.skip("unlink-while-open rotation is POSIX-only; see "
+                    "test_logfile_detector_handles_copytruncate")
     log.unlink()
     log.write_text("READY again\n")
+    det._tick()
+    assert seen[-1] == DetectorState.UP.value
+
+
+def test_logfile_detector_handles_copytruncate(tmp_path):
+    """Rotation via truncate-in-place (logrotate copytruncate) is detected on
+    every platform: the detector notices the file shrank and re-reads from the
+    top. Unlike the unlink path, this never deletes the open file, so it works
+    on Windows as well as POSIX."""
+    log = tmp_path / "r.log"
+    log.write_text("")
+    det = LogfileDetector(
+        detector_id="lg",
+        path=str(log),
+        down_patterns=["FATAL"],
+        up_patterns=["READY"],
+    )
+    seen: list = []
+    det.state_changed.connect(lambda did, st, detail: seen.append(st))
+    det._tick()
+
+    with open(log, "a") as f:
+        f.write("FATAL boom\n")
+    det._tick()
+    assert seen[-1] == DetectorState.DOWN.value
+
+    # copytruncate: truncate the file in place, then write the new content.
+    with open(log, "w"):
+        pass
+    det._tick()  # detector sees the file shrank and reopens at the top
+    with open(log, "a") as f:
+        f.write("READY again\n")
     det._tick()
     assert seen[-1] == DetectorState.UP.value
