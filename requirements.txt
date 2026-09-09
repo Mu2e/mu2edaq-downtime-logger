@@ -8,3 +8,4 @@ pyzmq>=25
 zeep>=4.2
 watchdog>=3.0
 SQLAlchemy>=2.0
+mu2edaq-discovery @ git+https://github.com/Mu2e/mu2edaq-discovery.git
