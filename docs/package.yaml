@@ -1,0 +1,126 @@
+schema: mega-review/1
+package: mu2edaq-downtime-logger
+tier: A
+group: monitoring
+repo:
+  url: git@github.com:Mu2e/mu2edaq-downtime-logger.git
+  exists: true
+  issues_enabled: true
+doc_dir: docs
+summary: >
+  PySide6 desktop application that fuses pluggable DAQ liveness detectors into a
+  weighted downtime score, prompts the shifter to classify each downtime, and
+  records it in SQLite behind a read-only HTTP view
+languages: [python, shell]
+loc: 4469            # 4234 Python (src, tools, tests) + 235 shell, git ls-files at f017f81
+
+runtime:
+  executables:
+    - name: mu2edaq-downtime-logger
+      kind: gui
+      man_page: man/man1/mu2edaq-downtime-logger.1
+      note: "console script, pyproject.toml:39 -> src/downtime_logger/__main__.py:23"
+    - name: start-mu2edaq-downtime-logger.sh
+      kind: script
+      man_page: man/man1/start-mu2edaq-downtime-logger.sh.1
+    - name: stop-mu2edaq-downtime-logger.sh
+      kind: script
+      man_page: man/man1/stop-mu2edaq-downtime-logger.sh.1
+    - name: bootstrap.sh
+      kind: script
+      man_page: man/man1/bootstrap.sh.1
+    - name: tools/zmq_publish.py
+      kind: script
+      man_page: man/man1/zmq_publish.py.1
+      note: "diagnostic mock producer, run as python -m tools.zmq_publish"
+    - name: tools/udp_broadcast.py
+      kind: script
+      man_page: man/man1/udp_broadcast.py.1
+      note: "diagnostic mock producer"
+    - name: tools/soap_server.py
+      kind: script
+      man_page: man/man1/soap_server.py.1
+      note: "diagnostic mock SOAP endpoint"
+    - name: tools/disk_writer.py
+      kind: script
+      man_page: man/man1/disk_writer.py.1
+      note: "diagnostic mock producer"
+    - name: tools/log_writer.py
+      kind: script
+      man_page: man/man1/log_writer.py.1
+      note: "diagnostic mock producer"
+    - name: downtime_logger
+      kind: library
+      man_page: man/man3/downtime_logger.3
+      note: "plugin interfaces (Detector, Metric, StorageBackend)"
+  services: []
+  ports:
+    - {port: 8088, proto: tcp, role: web-ui, source: "src/downtime_logger/config.py:26",
+       note: "code default and config/config.example.yaml:18; control-room inventory assigns it but nothing makes the app use it (DTL-013)"}
+    - {port: 8001, proto: tcp, role: web-ui, source: "config/local.yaml:12",
+       note: "bound on 127.0.0.1; this is what crs-app actually launches; collides with mu2edaq-snapshot-viewer config/server.yaml:10"}
+    - {port: 9000, proto: udp, role: heartbeat-listener, source: "src/downtime_logger/detectors/udp_detector.py:27",
+       note: "bound 0.0.0.0 in config/config.example.yaml:44-45, 127.0.0.1 in config/local.yaml:27-28; no producer outside tools/"}
+    - {port: 28999, proto: udp, role: discovery-responder, source: "src/downtime_logger/__main__.py:43",
+       note: "mu2edaq-discovery Responder, group 239.255.42.99; only when webserver.enabled and the package is importable"}
+    - {port: 5555, proto: tcp, role: diagnostic-zmq-pub, source: "tools/zmq_publish.py:12",
+       note: "mock producer binds tcp://*:5555 by default; fails on a host running mu2edaq-dashboard"}
+    - {port: 8080, proto: tcp, role: diagnostic-soap-mock, source: "tools/soap_server.py:102",
+       note: "mock SOAP server default, 127.0.0.1"}
+  config_files: [config/config.example.yaml, config/local.yaml]
+  env_vars: [PYTHON]   # bootstrap.sh only; the application reads no environment variables
+
+interactions:
+  depends_on:
+    - package: mu2edaq-discovery
+      via: import
+      direction: out
+      optional: true
+      evidence: "src/downtime_logger/__main__.py:42"
+      note: "best-effort; bootstrap.sh:59-61 installs the sibling checkout when present"
+  depended_on_by: []
+  external: [zeromq-pub-run-state (none exists), soap-run-control (none exists), local-filesystem, artdaq-log-files]
+
+quality:
+  tests: {present: true, framework: pytest, count: 67}
+  ci: {present: true, workflows: [.github/workflows/ci.yml]}
+  ci_note: "pytest per module on Ubuntu, Python 3.10/3.11/3.12, offscreen Qt; plus an import-only job on 3.12. No 3.9 leg (DTL-010)."
+  license: MIT
+  license_note: "LICENSE is MIT; pyproject.toml:12 declares Apache-2.0 (DTL-019, in roll-up DTL-020)"
+  artifacts_clean: true
+
+notes:
+  - "Web view is stdlib http.server.ThreadingHTTPServer, not Flask (src/downtime_logger/web/server.py:19,511)."
+  - >
+    No depends_on edge to mu2edaq-dashboard, deliberately. config/config.example.yaml:35
+    connects a ZMQ SUB to tcp://daq01:5555; the dashboard binds PULL on 5555, so the pair
+    cannot talk (reproduced), daq01 does not resolve, no launch path loads the example
+    (crs-app runs config/local.yaml, which has no ZMQ detector), and the port was inherited
+    from the mock tools/zmq_publish.py:12. It is a port coincidence, not a link. Likewise the
+    SOAP target http://daq01:8080/RunControl?wsdl (config/config.example.yaml:53) is the
+    tools/soap_server.py mock, not mu2edaq-resource-manager. Outbound targets are therefore
+    not listed under ports. Verdict on DASH-002: reclassified S2 -> S3 (DTL-001), see
+    docs/INTERFACES.md section 3.
+  - "Man pages renamed to command names in commit 6e90d27; no references to the old paths remain outside README.md, which was updated."
+  - "Open issue #6 appears fixed on main by c9a44ed and f017f81; recommend closing."
+  - "Cross-package: mu2edaq-dashboard DASH-002 (S2, fingerprint 5071a0e6) should be reduced to S3 or to a cross-reference to DTL-001."
+  - "Discovery meta (contract 9.5): Responder is called without meta (src/downtime_logger/__main__.py:43-44), so the string-only rule holds trivially; version is not passed either, so it announces version 0."
+
+findings:
+  - {id: DTL-002, severity: S2, type: bug, title: "[metric] clear_threshold sits above the floor a single stuck detector holds, so events can never close", issue: pending, fingerprint: 4ed1313a}
+  - {id: DTL-003, severity: S2, type: bug, title: "[storage] SQLite returns naive datetimes, so editing a past event shifts its end time by the local UTC offset", issue: pending, fingerprint: 319194e1}
+  - {id: DTL-013, severity: S2, type: bug, title: "[deploy] the control-room launch path runs the workstation test config, serving the web view on loopback:8001", issue: pending, fingerprint: 2d4dea85}
+  - {id: DTL-014, severity: S2, type: bug, title: "[lifecycle] SIGTERM from the stop script orphans an open event, which then inflates every later report", issue: pending, fingerprint: 76cf3c3d}
+  - {id: DTL-021, severity: S2, type: bug, title: "[ui] saving the DAQ DOWN popup after the event auto-closed reopens it in the database", issue: pending, fingerprint: e8392995}
+  - {id: DTL-001, severity: S3, type: bug, title: "[config] ZeroMQ detector is a SUB socket aimed at a port the dashboard binds as PULL", issue: pending, fingerprint: d86b04b4}
+  - {id: DTL-005, severity: S3, type: bug, title: "[detectors] an exception in a detector's start() is invisible; the detector stays UNKNOWN forever", issue: pending, fingerprint: d5fd05de}
+  - {id: DTL-010, severity: S3, type: bug, title: "[ci] CI does not test Python 3.9 although pyproject declares requires-python >=3.9", issue: pending, fingerprint: 5769af3d}
+  - {id: DTL-011, severity: S3, type: bug, title: "[detectors] ZMQ and UDP state tokens are substring-matched, so unrelated payloads flip the state", issue: pending, fingerprint: f52b63e7}
+  - {id: DTL-015, severity: S3, type: bug, title: "[web] status and report pages interpolate detector detail and event text without HTML escaping", issue: pending, fingerprint: 375bb4d3}
+  - {id: DTL-016, severity: S3, type: bug, title: "[state] monitoring starts disabled on every launch, with no override and no indication over HTTP", issue: pending, fingerprint: 75a8d236}
+  - {id: DTL-017, severity: S3, type: bug, title: "[storage] update_event silently discards started_at edits made in the event editor", issue: pending, fingerprint: 972e373d}
+  - {id: DTL-018, severity: S3, type: bug, title: "[detectors] logfile tail skips lines written to a file created after the detector started", issue: pending, fingerprint: 759d4a30}
+  - {id: DTL-004, severity: S4, type: enhancement, title: "[storage] detector_state_log grows without bound and has no retention path", issue: pending, fingerprint: 7d76038c}
+  - {id: DTL-006, severity: S4, type: documentation, title: "[config] example config targets the unresolvable placeholder host daq01 for both ZMQ and SOAP", issue: pending, fingerprint: 6a83f7e5}
+  - {id: DTL-020, severity: S4, type: documentation, title: "[hygiene] roll-up of five low-severity documentation, metadata and error-handling findings", issue: pending, fingerprint: a77c20ac,
+     rolls_up: [DTL-007/300a658a, DTL-008/c919cff8, DTL-009/f1acc2cf, DTL-012/7a7c6702, DTL-019/17239c99]}
