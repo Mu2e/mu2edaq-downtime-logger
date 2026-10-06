@@ -170,21 +170,31 @@ consumes. Use them to verify a deployment without live DAQ hardware. See
 
 ## Man pages
 
-Man pages for all executables and tools are in `man/man1/`. To view:
+Man pages live under `man/manN/`, one page per command, named after the
+command itself:
+
+| Section | Pages |
+|---------|-------|
+| `man1` | `mu2edaq-downtime-logger`, `start-mu2edaq-downtime-logger.sh`, `stop-mu2edaq-downtime-logger.sh`, `bootstrap.sh`, and the tools `zmq_publish.py`, `udp_broadcast.py`, `soap_server.py`, `disk_writer.py`, `log_writer.py` |
+| `man3` | `downtime_logger` (detector, metric and storage plugin interfaces) |
+| `man5` | `mu2edaq-downtime-logger.yaml` (configuration file) |
+| `man7` | `mu2edaq-downtime-logger-api` (HTTP API and detector wire protocols) |
+
+To view without installing:
 
 ```bash
 man -l man/man1/mu2edaq-downtime-logger.1
-man -l man/man1/mu2edaq-start.1
-man -l man/man1/mu2edaq-stop.1
-man -l man/man1/mu2edaq-bootstrap.1
+man -l man/man5/mu2edaq-downtime-logger.yaml.5
+man -l man/man7/mu2edaq-downtime-logger-api.7
 ```
 
-Install system-wide (optional):
+Or put the tree on the search path:
 
 ```bash
-sudo cp man/man1/*.1 /usr/local/share/man/man1/
-sudo mandb   # Linux
+MANPATH="$PWD/man:$(manpath)" man start-mu2edaq-downtime-logger.sh
 ```
+
+Design, interface and operations notes are in `docs/`.
 
 ## Tests
 

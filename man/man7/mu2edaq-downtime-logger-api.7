@@ -1,0 +1,280 @@
+.TH MU2EDAQ\-DOWNTIME\-LOGGER\-API 7 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
+.SH NAME
+mu2edaq\-downtime\-logger\-api \- downtime logger HTTP API and wire protocols
+.SH DESCRIPTION
+This page describes what
+.BR mu2edaq\-downtime\-logger (1)
+exposes over HTTP and what each shipped detector expects to receive.
+.SH HTTP API
+Served by a stdlib
+.B ThreadingHTTPServer
+on a daemon thread when
+.B webserver.enabled
+is true; address and port from
+.BR mu2edaq\-downtime\-logger.yaml (5).
+Only
+.B GET
+is implemented; other methods get the
+.B http.server
+default 501.
+There is no authentication and no TLS.
+Every response carries
+.BR "Cache\-Control: no\-store" .
+Unknown paths return 404
+.IR "not found" ;
+an exception in a handler returns 500 with
+.BI "internal error: " text
+in the body.
+.TP
+.BR "GET /" ", " "GET /index.html"
+HTML status page with a meta refresh of
+.BR refresh_seconds .
+Banner, detector table, active event, last
+.B history_limit
+events.
+.TP
+.B GET /report
+HTML summary over a time window.
+Query parameters
+.B from
+and
+.B to
+in
+.B YYYY\-MM\-DDTHH:MM
+or
+.BR YYYY\-MM\-DDTHH:MM:SS ,
+interpreted as UTC.
+Default: the last 7 days.
+A reversed range is swapped.
+An unparseable value returns 500.
+.TP
+.B GET /api/status
+JSON object:
+.RS
+.TP
+.B score
+float, the last metric score.
+.TP
+.B is_down
+the metric's verdict at the last recompute.
+It is reported even while monitoring is disabled, when no event can open;
+the enabled state itself is not exposed.
+.TP
+.B updated_at
+ISO\-8601 with offset.
+.TP
+.B readings
+array of
+.RB { detector_id ,
+.BR state " (" up | down | unknown ),
+.BR weight ,
+.BR ts ,
+.BR detail }.
+.TP
+.B current_event
+the event the state machine holds open, or null.
+.RE
+.TP
+.B GET /api/events
+JSON array of the newest
+.B history_limit
+events by
+.BR started_at .
+Each event:
+.BR id ,
+.BR started_at ,
+.BR ended_at ,
+.BR duration_seconds ,
+.BR opened_by ,
+.BR score_at_open ,
+.BR category ,
+.BR subsystem ,
+.BR cause ,
+.BR notes ,
+.BR is_open .
+.TP
+.BI "GET /api/events/" ID
+One event, or 404.
+.TP
+.B GET /api/report
+JSON form of
+.BR /report :
+.B range
+.RB { from ,
+.BR to },
+.B summary
+.RB { total_events ,
+.BR total_seconds ,
+.BR avg_seconds ,
+.BR longest_seconds },
+.BR by_category [],
+.BR by_subsystem [],
+.BR events [].
+Durations are clamped to the window; an open event runs to
+.BR to .
+.B avg_seconds
+averages closed events only.
+.TP
+.B GET /healthz
+.B ok
+as text/plain.
+It reports that the HTTP thread is alive and nothing else.
+.SS Timestamps
+Events read from SQLite carry no offset: their timestamps are UTC
+wall\-clock times serialized without a suffix (for example
+.BR 2026\-10\-06T14:00:00 ).
+Timestamps built in memory
+.RB ( updated_at ,
+readings,
+.BR current_event )
+carry
+.BR +00:00 .
+Treat both forms as UTC.
+.SS Escaping
+Detector
+.B detail
+strings and event text are inserted into the HTML pages without HTML
+escaping.
+.SH DETECTOR WIRE PROTOCOLS
+.SS ZmqDetector
+Opens a
+.B ZMQ_SUB
+socket,
+.B connects
+it to
+.BR endpoint ,
+subscribes to
+.BR topic .
+The peer must be a
+.B ZMQ_PUB
+that binds.
+Each frame is decoded as UTF\-8 (errors replaced), stripped, lowercased,
+and tested with Python substring containment:
+.IP \(bu 2
+DOWN if it contains any of
+.BR stopped ,
+.BR stop ,
+.BR down ,
+.BR halted ,
+.BR abort ,
+.BR aborted ;
+.IP \(bu 2
+else UP if it contains any of
+.BR running ,
+.BR run ,
+.BR up ,
+.BR started ,
+.BR active ;
+.IP \(bu 2
+else UP as a heartbeat.
+.PP
+Matching is not word\-bounded:
+.I shutdown
+and
+.I countdown
+read DOWN,
+.I setup
+and
+.I truncated
+read UP.
+Any frame restarts a watchdog of
+.BR heartbeat_timeout_s ;
+expiry reports DOWN with detail
+.IR "no zmq messages within timeout" .
+.PP
+Not compatible with the
+.B mu2edaq\-dashboard
+message bus: the dashboard
+.B binds ZMQ_PULL
+on 5555 and its producers
+.BR "PUSH \-connect" .
+A SUB socket connected there is rejected during the ZMTP handshake and
+receives nothing; the detector reports DOWN after the timeout.
+Even if frames arrived, the bus JSON
+.RB ( event_category ,
+.BR error_level ,
+.BR subsystem ,
+.BR timestamp ,
+.BR message )
+carries no run state; it would be read as UP heartbeats, or as DOWN
+whenever a message text contained a DOWN token.
+.SS UdpDetector
+Binds a
+.B QUdpSocket
+to
+.IR bind : port
+with address sharing.
+Same grammar and watchdog as ZmqDetector, applied per datagram; expiry
+detail
+.IR "no udp datagrams within timeout" .
+Any sender is accepted, without authentication.
+.SS SoapDetector
+.B zeep
+client on
+.BR wsdl ;
+calls
+.I operation
+with
+.I args
+every
+.BR poll_s ,
+follows the dotted
+.B state_path
+through the response, lowercases the result and compares it exactly with
+.B down_values
+and
+.BR up_values .
+No match, a WSDL failure or a call failure gives UNKNOWN, never DOWN.
+.SS DiskActivityDetector
+No wire protocol.
+A
+.B watchdog
+observer records the time of any non\-directory event under
+.BR paths ;
+a poll reports DOWN when that time is older than
+.BR idle_seconds .
+The initial time is the newest mtime found under
+.BR paths ,
+or the epoch if none.
+.SS LogfileDetector
+No wire protocol.
+Tails each file every
+.BR poll_s ,
+reopening on inode change or truncation, and applies
+.B down_patterns
+then
+.B up_patterns
+with
+.B re.search
+to every new line.
+A file that is opened for the first time, including one recreated after a
+rotation gap, is read from its end.
+.SH SERVICE DISCOVERY
+With the web server enabled and
+.B mu2edaq_discovery
+importable, a
+.B Responder
+announces
+.BR name="Downtime Logger" ,
+.BR app="downtime\-logger" ,
+.BR scheme=http ,
+.B port=webserver.port
+and the host's FQDN.
+No
+.B meta
+is sent.
+The announced address does not reflect
+.BR webserver.bind :
+with
+.B bind: 127.0.0.1
+the advertised URL is unreachable from other hosts.
+.SH SEE ALSO
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger.yaml (5),
+.BR downtime_logger (3),
+.BR zmq_publish.py (1),
+.BR udp_broadcast.py (1),
+.BR soap_server.py (1),
+.BR mu2edaq\-discover (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

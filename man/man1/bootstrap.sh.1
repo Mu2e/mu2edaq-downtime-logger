@@ -1,87 +1,127 @@
-.TH MU2EDAQ\-BOOTSTRAP 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH BOOTSTRAP.SH 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-bootstrap \- create or update the Python virtual environment
+bootstrap.sh \- set up the downtime logger virtual environment
 .SH SYNOPSIS
 .B bootstrap.sh
-[\fB\-\-dev\fR]
-[\fB\-\-postgres\fR]
-[\fB\-\-recreate\fR]
+.RB [ \-\-dev ]
+.RB [ \-\-postgres ]
+.RB [ \-\-recreate ]
+.br
+.B bootstrap.sh
+.BR \-h | \-\-help
 .SH DESCRIPTION
+This page documents the
 .B bootstrap.sh
-creates the Python virtual environment under \fIvenv/\fR in the project
-directory (if it does not already exist) and installs or upgrades all
-runtime dependencies declared in \fBpyproject.toml\fR.
+at the top of the
+.B mu2edaq\-downtime\-logger
+checkout.
+The script changes to its own directory, creates
+.I venv/
+with
+.B $PYTHON \-m venv
+if it does not exist, activates it, upgrades
+.BR pip ,
+.B setuptools
+and
+.BR wheel ,
+and then:
+.IP 1. 4
+if a sibling checkout
+.I ../mu2edaq\-discovery
+exists, installs it editable
+.RB ( "pip install \-\-upgrade \-e ../mu2edaq\-discovery" ),
+which enables service\-discovery announcements;
+.IP 2. 4
+installs this package editable
+.RB ( "pip install \-\-upgrade \-e ." ),
+with the extras selected by the options.
 .PP
-Run this script once on a fresh checkout, and again whenever
-\fBpyproject.toml\fR or the requirements files change.
+.B mu2edaq\-discovery
+is not on PyPI and is deliberately not a declared dependency; without the
+sibling checkout the application runs with discovery off.
 .PP
-The
-.B start\-mu2edaq\-downtime\-logger.sh
-script calls
-.B bootstrap.sh
-automatically if no virtual environment is found.
+.BR start\-mu2edaq\-downtime\-logger.sh (1)
+runs this script automatically when
+.I venv/bin/activate
+is missing.
 .SH OPTIONS
 .TP
 .B \-\-dev
-Also install development and test dependencies
-(\fBpytest\fR, \fBpytest-qt\fR).
+Add the
+.B dev
+extra
+.RB ( pytest ,
+.BR pytest\-qt ).
 .TP
 .B \-\-postgres
-Also install \fBpsycopg2\-binary\fR for the optional PostgreSQL
-storage backend.
+Add the
+.B postgres
+extra
+.RB ( psycopg2\-binary ).
+The shipped storage backend is SQLite only; this provides the driver for a
+user\-written PostgreSQL backend.
 .TP
 .B \-\-recreate
-Delete the existing \fIvenv/\fR directory and rebuild it from scratch.
-Useful when switching Python versions or resolving dependency conflicts.
+Delete
+.I venv/
+and build it again.
 .TP
-.B \-h\fR, \fB\-\-help
-Print a usage summary and exit.
-.SH ENVIRONMENT
-.TP
-.B PYTHON
-Path to the Python interpreter to use when creating the virtual
-environment. Default: \fBpython3\fR.
+.BR \-h ", " \-\-help
+Print usage and exit 0.
 .SH FILES
 .TP
 .I venv/
-Python virtual environment directory created by this script.
+The virtual environment.
 .TP
 .I pyproject.toml
-Primary dependency specification.
+Dependency declaration used by the editable install.
 .TP
-.I requirements.txt
-Runtime-only dependency pins.
+.I ../mu2edaq\-discovery
+Optional sibling checkout installed first when present.
+.SH ENVIRONMENT
 .TP
-.I requirements-dev.txt
-Runtime + test dependency pins.
+.B PYTHON
+Interpreter used to create the environment.
+Default
+.BR python3 .
+The package declares
+.B requires\-python >= 3.9
+(AlmaLinux 9 system Python).
+.SH EXIT STATUS
 .TP
-.I requirements-postgres.txt
-Runtime + psycopg2 dependency pins.
+.B 0
+The environment is ready.
+.TP
+.B 1
+Unknown option.
+.TP
+.B >0
+A failing
+.B python
+or
+.B pip
+step; the script runs under
+.B set \-e
+and exits with that step's status.
 .SH EXAMPLES
-Standard first-time setup:
+First\-time setup with the test tools:
 .PP
 .RS
 .nf
-./bootstrap.sh
+\&./bootstrap.sh \-\-dev
 .fi
 .RE
 .PP
-Set up with test tools and rebuild from scratch:
+Rebuild from scratch with a specific interpreter:
 .PP
 .RS
 .nf
-./bootstrap.sh \-\-dev \-\-recreate
-.fi
-.RE
-.PP
-Use a specific Python interpreter:
-.PP
-.RS
-.nf
-PYTHON=/usr/bin/python3.11 ./bootstrap.sh
+PYTHON=/usr/bin/python3.9 ./bootstrap.sh \-\-recreate
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-start (1),
-.BR mu2edaq\-stop (1),
+.BR start\-mu2edaq\-downtime\-logger.sh (1),
+.BR stop\-mu2edaq\-downtime\-logger.sh (1),
 .BR mu2edaq\-downtime\-logger (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

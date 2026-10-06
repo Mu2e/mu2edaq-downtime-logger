@@ -1,65 +1,141 @@
-.TH MU2EDAQ\-ZMQ\-PUBLISH 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH ZMQ_PUBLISH.PY 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-zmq\-publish \- ZeroMQ PUB diagnostic for ZmqDetector
+zmq_publish.py \- ZeroMQ PUB test producer for the ZmqDetector
 .SH SYNOPSIS
 .B python \-m tools.zmq_publish
-[\fB\-\-endpoint\fR \fIEP\fR]
-[\fB\-\-topic\fR \fITOPIC\fR]
-[\fB\-\-state\fR \fISTATE\fR]
-[\fB\-\-interval\fR \fISECS\fR]
-[\fB\-\-once\fR]
-[\fB\-\-message\fR \fITEXT\fR]
+.RB [ \-\-endpoint
+.IR EP ]
+.RB [ \-\-topic
+.IR PREFIX ]
+.RB [ \-\-state
+.BR running | stopped | heartbeat ]
+.RB [ \-\-interval
+.IR SECS ]
+.RB [ \-\-once ]
+.RB [ \-\-message
+.IR TEXT ]
+.br
+.B python tools/zmq_publish.py
+.I ...
 .SH DESCRIPTION
-.B zmq_publish
-binds a ZeroMQ PUB socket and publishes state messages or heartbeats in the
-format that
-.B ZmqDetector
-expects. Use it to simulate a running or stopped DAQ without live hardware.
+Diagnostic tool shipped with
+.BR mu2edaq\-downtime\-logger (1).
+It
+.B binds
+a
+.B ZMQ_PUB
+socket, sleeps 0.3 s so that already\-connecting subscribers finish the
+handshake, and then sends one single\-frame UTF\-8 string per interval.
+It is the only producer in the Mu2e DAQ tree written for the
+.B ZMQ_SUB
+socket of
+.BR ZmqDetector ;
+no production DAQ component publishes run state over
+.BR ZMQ_PUB .
+Run it from the package root with the virtual environment active.
 .PP
-By default the tool publishes every second until interrupted with Ctrl-C.
+The frame is
+.I PREFIX
+immediately followed by the body (no separator).
+The bodies for
+.B \-\-state
+are
+.BR "RUN STATE running" ,
+.B RUN STATE stopped
+and
+.BR "heartbeat tick" .
+The detector lowercases the frame and substring\-matches it, so these read
+as UP, DOWN and UP (heartbeat) respectively; see
+.BR mu2edaq\-downtime\-logger\-api (7).
 .SH OPTIONS
 .TP
-\fB\-\-endpoint\fR \fIEP\fR
-ZMQ bind endpoint. Default: \fBtcp://*:5555\fR.
+.BI \-\-endpoint " EP"
+Bind endpoint.
+Default
+.BR tcp://*:5555 .
+5555 is also the port on which
+.B mu2edaq\-dashboard
+binds its
+.B ZMQ_PULL
+socket; on a host running the dashboard the bind fails with
+.IR "Address already in use" .
+Pick another port there and point the detector at it.
 .TP
-\fB\-\-topic\fR \fITOPIC\fR
-Topic prefix prepended to the message body. Default: empty string
-(subscribe-all).
+.BI \-\-topic " PREFIX"
+Prepended to every body.
+Default empty.
+Must match the detector's
+.B topic
+option as a prefix.
 .TP
-\fB\-\-state\fR \fI{running,stopped,heartbeat}\fR
-Predefined state to publish. Produces the message body
-\fBRUN STATE running\fR, \fBRUN STATE stopped\fR, or
-\fBheartbeat tick\fR respectively. Overridden by \fB\-\-message\fR.
-Default: \fBrunning\fR.
+.BR \-\-state " {" running | stopped | heartbeat }
+Choose the body.
+Default
+.BR running .
 .TP
-\fB\-\-interval\fR \fISECS\fR
-Seconds between publishes. Default: \fB1.0\fR.
+.BI \-\-interval " SECS"
+Seconds between sends.
+Default
+.BR 1.0 .
 .TP
 .B \-\-once
-Publish a single message and exit.
+Send one frame and exit.
 .TP
-\fB\-\-message\fR \fITEXT\fR
-Override the message body with arbitrary text, ignoring \fB\-\-state\fR.
-.SH NOTES
-ZMQ PUB sockets drop messages until subscribers have completed the
-handshake. The tool sleeps 300 ms after binding before sending the first
-message to allow slow-joiner subscribers to connect.
+.BI \-\-message " TEXT"
+Send
+.I TEXT
+as the body instead of the
+.B \-\-state
+body.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+.B \-\-once
+completed.
+.TP
+.B 1
+Bind failure (uncaught
+.BR zmq.ZMQError ).
+.TP
+.B 2
+Usage error.
+.TP
+.B 130
+Interrupted with Ctrl\-C (the loop runs until interrupted).
 .SH EXAMPLES
-Simulate a running DAQ:
+Publish
+.I running
+every second on a free port and watch the detector go UP:
 .PP
 .RS
 .nf
-python \-m tools.zmq_publish \-\-state running \-\-interval 1
+python \-m tools.zmq_publish \-\-endpoint tcp://*:5565 \-\-state running
 .fi
 .RE
 .PP
-Send a one-shot stop signal:
+Send a single stop:
 .PP
 .RS
 .nf
-python \-m tools.zmq_publish \-\-state stopped \-\-once
+python \-m tools.zmq_publish \-\-endpoint tcp://*:5565 \-\-state stopped \-\-once
+.fi
+.RE
+.PP
+Matching detector block:
+.PP
+.RS
+.nf
+\- id: zmq_run_status
+  plugin: downtime_logger.detectors.zeromq_detector:ZmqDetector
+  options: {endpoint: "tcp://localhost:5565", heartbeat_timeout_s: 10}
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-udp\-broadcast (1),
-.BR mu2edaq\-downtime\-logger (1)
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger\-api (7),
+.BR udp_broadcast.py (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

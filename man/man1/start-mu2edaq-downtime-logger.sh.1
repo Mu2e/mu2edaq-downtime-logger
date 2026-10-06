@@ -1,83 +1,151 @@
-.TH MU2EDAQ\-START 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH START\-MU2EDAQ\-DOWNTIME\-LOGGER.SH 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-start \- start the mu2edaq\-downtime\-logger application
+start\-mu2edaq\-downtime\-logger.sh \- start the downtime logger
 .SH SYNOPSIS
 .B start\-mu2edaq\-downtime\-logger.sh
-[\fB\-\-config\fR \fIFILE\fR]
-[\fB\-\-log\-level\fR \fILEVEL\fR]
-[\fB\-\-log\-file\fR \fIFILE\fR]
-[\fB\-\-foreground\fR]
-[\fB\-\-\fR \fIEXTRA_ARGS\fR...]
-.SH DESCRIPTION
+.RB [ \-\-config
+.IR FILE ]
+.RB [ \-\-log\-level
+.IR LEVEL ]
+.RB [ \-\-log\-file
+.IR FILE ]
+.RB [ \-\-foreground ]
+.RB [ \-\-
+.IR ARGS ...]
+.br
 .B start\-mu2edaq\-downtime\-logger.sh
-activates the Python virtual environment and launches
+.BR \-h | \-\-help
+.SH DESCRIPTION
+The script changes to its own directory, runs
+.BR bootstrap.sh (1)
+if
+.I venv/bin/activate
+is missing, activates the virtual environment and starts
 .BR mu2edaq\-downtime\-logger (1).
-By default the application is started in the background; a PID file is
-written to prevent accidental double-starts.
 .PP
-If no virtual environment is found under \fIvenv/\fR the script runs
-.B bootstrap.sh
-automatically before launching the application.
+By default the application is started in the background with
+.BR nohup ,
+standard output and standard error are appended to the log file, and the
+child PID is written to
+.IR mu2edaq\-downtime\-logger.pid .
+If that PID file names a live process the script refuses to start; a PID
+file naming a dead process is removed.
 .PP
-Background output (stdout and stderr) is appended to
-\fImu2edaq\-downtime\-logger.log\fR in the project directory unless
-\fB\-\-log\-file\fR is specified.
+With
+.B \-\-foreground
+the script
+.BR exec s
+the application in place: no PID file is written and output stays on the
+terminal.
+.PP
+.B The default configuration is the workstation test file
+.BR config/local.yaml ,
+which watches
+.I /tmp/daq\-test
+and 127.0.0.1:9000/udp and serves the web view on 127.0.0.1:8001.
+The control\-room launcher
+.B crs\-app
+runs this script with no arguments, so it gets that file.
+Pass
+.B \-\-config
+to monitor real DAQ signals.
+The script does not read
+.B CRS_PORT_HTTP
+or any other environment variable.
 .SH OPTIONS
 .TP
-\fB\-\-config\fR \fIFILE\fR
-Path to the YAML configuration file.
-Default: \fBconfig/local.yaml\fR.
+.BI \-\-config " FILE"
+YAML configuration passed to the application.
+Default
+.IR config/local.yaml .
+A relative path is resolved against the package directory, because the
+script changes into it first.
 .TP
-\fB\-\-log\-level\fR \fILEVEL\fR
-Application log level: \fBDEBUG\fR, \fBINFO\fR, \fBWARNING\fR, or
-\fBERROR\fR. Default: \fBINFO\fR.
+.BI \-\-log\-level " LEVEL"
+Passed through as
+.BR \-\-log\-level :
+.BR DEBUG ,
+.BR INFO ,
+.B WARNING
+or
+.BR ERROR .
+Default
+.BR INFO .
 .TP
-\fB\-\-log\-file\fR \fIFILE\fR
-Redirect background output to \fIFILE\fR instead of the default log file.
+.BI \-\-log\-file " FILE"
+Append background output to
+.I FILE
+instead of
+.IR mu2edaq\-downtime\-logger.log .
+Ignored with
+.BR \-\-foreground .
 .TP
 .B \-\-foreground
-Run the application in the foreground instead of the background.
-The PID file is not written in foreground mode.
+Run in the foreground instead of the background.
 .TP
-\fB\-\-\fR \fIEXTRA_ARGS\fR
-All arguments after \fB\-\-\fR are passed directly to
-\fBmu2edaq\-downtime\-logger\fR.
+.BI \-\- " ARGS"
+Everything after
+.B \-\-
+is appended to the application command line.
 .TP
-.B \-h\fR, \fB\-\-help
-Print a usage summary and exit.
+.BR \-h ", " \-\-help
+Print usage and exit 0.
 .SH FILES
 .TP
 .I mu2edaq\-downtime\-logger.pid
-PID file written when the application starts in background mode.
-Removed automatically on clean stop.
+PID of the background process, in the package directory.
 .TP
 .I mu2edaq\-downtime\-logger.log
-Default log file for background output.
+Default background log, appended to and never rotated.
 .TP
 .I venv/
-Python virtual environment. Created by \fBbootstrap.sh\fR if absent.
+Virtual environment created by
+.BR bootstrap.sh (1).
 .TP
 .I config/local.yaml
-Default configuration file.
+Default configuration.
+.SH ENVIRONMENT
+None read by the script itself.
+.B PYTHON
+is honoured by
+.BR bootstrap.sh (1)
+when the script has to bootstrap.
 .SH EXIT STATUS
-Exits non-zero if the application is already running (stale PID file
-excepted) or if a required option is missing.
+.TP
+.B 0
+The application was started in the background, or
+.B \-\-help
+was given.
+In foreground mode the exit status is that of the application.
+.TP
+.B 1
+Unknown option, an option missing its argument, or a live PID file.
+.TP
+.B >0
+A failing
+.BR bootstrap.sh (1)
+step; the script runs under
+.B set \-e
+and exits with that step's status.
+.PP
+A background start returns 0 as soon as the child is forked; a
+configuration error in the application is visible only in the log file.
 .SH EXAMPLES
-Start with the local development configuration:
+Start in the background with the workstation test configuration:
 .PP
 .RS
 .nf
-./start\-mu2edaq\-downtime\-logger.sh
+\&./start\-mu2edaq\-downtime\-logger.sh
 .fi
 .RE
 .PP
-Start with the production configuration and a custom log file:
+Start against a site configuration with a dedicated log file:
 .PP
 .RS
 .nf
-./start\-mu2edaq\-downtime\-logger.sh \\
-    \-\-config config/config.example.yaml \\
-    \-\-log\-file /var/log/mu2edaq/downtime.log
+\&./start\-mu2edaq\-downtime\-logger.sh \e
+    \-\-config /path/to/site.yaml \e
+    \-\-log\-file /var/log/mu2edaq/downtime\-logger.log
 .fi
 .RE
 .PP
@@ -85,10 +153,13 @@ Run in the foreground with debug logging:
 .PP
 .RS
 .nf
-./start\-mu2edaq\-downtime\-logger.sh \-\-foreground \-\-log\-level DEBUG
+\&./start\-mu2edaq\-downtime\-logger.sh \-\-foreground \-\-log\-level DEBUG
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-stop (1),
-.BR mu2edaq\-bootstrap (1),
-.BR mu2edaq\-downtime\-logger (1)
+.BR stop\-mu2edaq\-downtime\-logger.sh (1),
+.BR bootstrap.sh (1),
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger.yaml (5)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

@@ -1,67 +1,120 @@
-.TH MU2EDAQ\-UDP\-BROADCAST 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH UDP_BROADCAST.PY 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-udp\-broadcast \- UDP diagnostic for UdpDetector
+udp_broadcast.py \- UDP heartbeat test producer for the UdpDetector
 .SH SYNOPSIS
 .B python \-m tools.udp_broadcast
-[\fB\-\-host\fR \fIHOST\fR]
-[\fB\-\-port\fR \fIPORT\fR]
-[\fB\-\-state\fR \fISTATE\fR]
-[\fB\-\-interval\fR \fISECS\fR]
-[\fB\-\-once\fR]
-[\fB\-\-message\fR \fITEXT\fR]
+.RB [ \-\-host
+.IR HOST ]
+.RB [ \-\-port
+.IR PORT ]
+.RB [ \-\-state
+.BR running | stopped | heartbeat ]
+.RB [ \-\-interval
+.IR SECS ]
+.RB [ \-\-once ]
+.RB [ \-\-message
+.IR TEXT ]
+.br
+.B python tools/udp_broadcast.py
+.I ...
 .SH DESCRIPTION
-.B udp_broadcast
-sends UDP datagrams to a host or broadcast address in the format that
-.B UdpDetector
-expects. Use it to simulate a running or stopped DAQ without live hardware.
+Diagnostic tool shipped with
+.BR mu2edaq\-downtime\-logger (1).
+It sends one UDP datagram per interval to
+.IR HOST : PORT
+from a socket with
+.B SO_BROADCAST
+set.
+The bodies for
+.B \-\-state
+are
+.BR "DAQ STATE running" ,
+.B DAQ STATE stopped
+and
+.BR "heartbeat tick" ,
+which the detector reads as UP, DOWN and UP (heartbeat).
 .PP
-The socket is configured with \fBSO_BROADCAST\fR so that the default
-broadcast address \fB255.255.255.255\fR works without additional setup.
+.B UdpDetector
+binds its socket and accepts datagrams from any sender without
+authentication; any host that can reach the port can drive it.
 .SH OPTIONS
 .TP
-\fB\-\-host\fR \fIHOST\fR
-Target host or broadcast address. Default: \fB255.255.255.255\fR.
+.BI \-\-host " HOST"
+Destination address.
+Default
+.B 255.255.255.255
+(limited broadcast).
+A detector bound to 127.0.0.1, as in
+.IR config/local.yaml ,
+does not receive limited broadcasts on Linux; use
+.B \-\-host 127.0.0.1
+for that configuration.
 .TP
-\fB\-\-port\fR \fIPORT\fR
-Target UDP port. Default: \fB9000\fR.
+.BI \-\-port " PORT"
+Destination port.
+Default
+.BR 9000 .
 .TP
-\fB\-\-state\fR \fI{running,stopped,heartbeat}\fR
-Predefined state. Produces message body \fBDAQ STATE running\fR,
-\fBDAQ STATE stopped\fR, or \fBheartbeat tick\fR. Overridden by
-\fB\-\-message\fR. Default: \fBrunning\fR.
+.BR \-\-state " {" running | stopped | heartbeat }
+Choose the body.
+Default
+.BR running .
 .TP
-\fB\-\-interval\fR \fISECS\fR
-Seconds between datagrams. Default: \fB1.0\fR.
+.BI \-\-interval " SECS"
+Seconds between datagrams.
+Default
+.BR 1.0 .
+Keep it below the detector's
+.BR heartbeat_timeout_s .
 .TP
 .B \-\-once
-Send a single datagram and exit.
+Send one datagram and exit.
 .TP
-\fB\-\-message\fR \fITEXT\fR
-Override the datagram payload with arbitrary text.
+.BI \-\-message " TEXT"
+Send
+.I TEXT
+instead of the
+.B \-\-state
+body.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+.B \-\-once
+completed.
+.TP
+.B 1
+Socket error (uncaught
+.BR OSError ).
+.TP
+.B 2
+Usage error.
+.TP
+.B 130
+Interrupted with Ctrl\-C.
 .SH EXAMPLES
-Broadcast a heartbeat every second to the local network:
+Keep the
+.I local.yaml
+UDP detector UP:
 .PP
 .RS
 .nf
-python \-m tools.udp_broadcast \-\-state running
+python \-m tools.udp_broadcast \-\-host 127.0.0.1 \-\-port 9000 \-\-state running
 .fi
 .RE
 .PP
-Send to a specific host on a non-default port:
+Send one stop to a detector on another host:
 .PP
 .RS
 .nf
-python \-m tools.udp_broadcast \-\-host 192.168.1.100 \-\-port 9001 \-\-state running
-.fi
-.RE
-.PP
-Simulate a DAQ stop:
-.PP
-.RS
-.nf
-python \-m tools.udp_broadcast \-\-state stopped \-\-once
+python \-m tools.udp_broadcast \-\-host CONSOLE_HOST \-\-state stopped \-\-once
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-zmq\-publish (1),
-.BR mu2edaq\-downtime\-logger (1)
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger\-api (7),
+.BR zmq_publish.py (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

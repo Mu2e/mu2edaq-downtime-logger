@@ -1,0 +1,199 @@
+.TH DOWNTIME_LOGGER 3 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
+.SH NAME
+downtime_logger \- plugin interfaces of the Mu2e DAQ downtime logger
+.SH SYNOPSIS
+.nf
+.B from downtime_logger.detectors.base import Detector
+.B from downtime_logger.core.event import DetectorState, DetectorReading, DowntimeEvent
+.B from downtime_logger.core.metric import Metric
+.B from downtime_logger.storage.base import StorageBackend
+.fi
+.SH DESCRIPTION
+The
+.B downtime_logger
+package (installed by
+.IR mu2edaq\-downtime\-logger )
+loads its detectors, its metric and its storage backend from YAML strings of
+the form
+.IR module.path:ClassName ,
+using
+.B importlib
+(no entry points).
+A class in any module on
+.B PYTHONPATH
+can be named.
+Each is constructed with the YAML
+.B options
+mapping as keyword arguments.
+.SS DetectorState
+.B str
+enum with values
+.BR up ,
+.B down
+and
+.BR unknown .
+.SS Detector
+A
+.B QObject
+with the signal
+.BR "state_changed(str detector_id, str state, str detail)" .
+.TP
+.BI __init__( detector_id ", **options)"
+Called on the GUI thread.
+Call
+.BI super().__init__( detector_id )\fR.
+Accept and ignore unknown keywords with
+.BR **_ ,
+as the shipped detectors do.
+Do not create sockets, timers or notifiers here: the object is moved to its
+own
+.B QThread
+afterwards and anything created now keeps GUI\-thread affinity.
+.TP
+.B start()
+A
+.BR @Slot() .
+Invoked once on the detector's thread through a queued
+.BR QMetaObject.invokeMethod .
+Create all I/O objects here.
+An exception escaping
+.B start()
+is printed by PySide6 and swallowed; the detector then stays UNKNOWN with no
+other indication.
+.TP
+.B stop()
+A
+.BR @Slot() ,
+default no\-op.
+Connected with a direct connection to the thread's
+.B finished
+signal, so it runs on the detector thread during shutdown.
+.TP
+.BI _emit_state( state ", " detail )
+Emit
+.BR state_changed ;
+repeated identical states are suppressed after the first emission, so emit
+on every observation and let the base class edge\-detect.
+Report UNKNOWN when nothing can be determined; UNKNOWN is excluded from the
+score.
+.PP
+The
+.B weight
+key in YAML is not passed to the detector.
+.SS Metric
+Abstract base class with one method:
+.PP
+.RS
+.nf
+evaluate(readings: Mapping[str, DetectorReading],
+         previously_down: bool) \-> tuple[float, bool]
+.fi
+.RE
+.PP
+It returns the score (stored as given) and whether the state machine should
+consider the DAQ down.
+.I previously_down
+lets the metric implement hysteresis.
+The
+.B debounce_seconds
+option is removed from the metric options and consumed by the state
+machine.
+The shipped
+.B WeightedRatioMetric(trip_threshold=0.6, clear_threshold=0.2)
+returns
+.IR sum(w_down)/sum(w_up+w_down) ,
+0.0 when every detector is UNKNOWN.
+.SS StorageBackend
+Abstract base class; every method is called on the Qt GUI thread, and the
+read methods are also called concurrently from HTTP request threads.
+.TP
+.BI open_event( event ") \-> int"
+Persist a new event, set
+.B event.id
+in place and return it.
+.TP
+.BI close_event( event )
+Persist
+.BR ended_at .
+.TP
+.BI update_event( event )
+Persist the editable fields.
+The SQLite backend writes
+.BR category ,
+.BR subsystem ,
+.BR cause ,
+.B notes
+and
+.BR ended_at ;
+it does not write
+.BR started_at .
+.TP
+.BI get_event( id "), delete_event(" id ") \-> bool"
+Fetch; hard delete.
+.TP
+.BI list_events( limit "=200)"
+Newest first by
+.BR started_at .
+.TP
+.BI list_events_in_range( start ", " end ", " limit "=5000)"
+Events overlapping
+.RI [ start ", " end ],
+oldest first; events with no
+.B ended_at
+always overlap.
+Pass UTC: the SQLite backend compares offset\-less UTC strings.
+.TP
+.BI log_readings( score ", " readings )
+Append the readings of one recompute.
+.TP
+.B close()
+Release resources.
+.PP
+The SQLite backend returns naive
+.B datetime
+objects that hold UTC wall\-clock time.
+.SH ENVIRONMENT
+.TP
+.B PYTHONPATH
+Where third\-party plugin modules are found.
+.SH EXAMPLES
+A detector that reports DOWN while a file exists:
+.PP
+.RS
+.nf
+import os
+from PySide6.QtCore import QTimer, Slot
+from downtime_logger.core.event import DetectorState
+from downtime_logger.detectors.base import Detector
+
+class FlagFileDetector(Detector):
+    def __init__(self, detector_id, path, poll_s=2.0, **_):
+        super().__init__(detector_id)
+        self._path, self._ms, self._t = path, int(poll_s * 1000), None
+
+    @Slot()
+    def start(self):
+        self._t = QTimer()
+        self._t.timeout.connect(self._poll)
+        self._t.start(self._ms)
+
+    @Slot()
+    def stop(self):
+        if self._t:
+            self._t.stop()
+
+    def _poll(self):
+        down = os.path.exists(self._path)
+        self._emit_state(DetectorState.DOWN if down else DetectorState.UP,
+                         self._path)
+.fi
+.RE
+.PP
+Referenced from YAML as
+.BR "plugin: flagfile:FlagFileDetector" .
+.SH SEE ALSO
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger.yaml (5),
+.BR mu2edaq\-downtime\-logger\-api (7)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

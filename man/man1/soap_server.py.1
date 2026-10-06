@@ -1,77 +1,130 @@
-.TH MU2EDAQ\-SOAP\-SERVER 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH SOAP_SERVER.PY 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-soap\-server \- mock SOAP run-control server for SoapDetector
+soap_server.py \- mock SOAP run\-control endpoint for the SoapDetector
 .SH SYNOPSIS
 .B python \-m tools.soap_server
-[\fB\-\-host\fR \fIHOST\fR]
-[\fB\-\-port\fR \fIPORT\fR]
-[\fB\-\-state\fR \fISTATE\fR]
+.RB [ \-\-host
+.IR HOST ]
+.RB [ \-\-port
+.IR PORT ]
+.RB [ \-\-state
+.IR VALUE ]
+.br
+.B python tools/soap_server.py
+.I ...
 .SH DESCRIPTION
-.B soap_server
-runs a minimal HTTP/SOAP server that implements the single
-\fBgetRunState\fR operation consumed by
-.BR SoapDetector .
-It is pure-stdlib and requires no SOAP framework.
+Diagnostic tool shipped with
+.BR mu2edaq\-downtime\-logger (1).
+A single\-threaded stdlib
+.B http.server
+that serves a hand\-written WSDL declaring one operation,
+.BR getRunState ,
+whose response carries one string element,
+.BR runState .
+The value can be changed while the server runs.
 .PP
-The run state can be toggled at runtime by sending a plain HTTP GET
-request to \fB/set?state=\fR\fIVALUE\fR, making it easy to simulate DAQ
-transitions without restarting the tool.
+The operation name, the
+.B runState
+field and the example
+.B down_values
+/
+.B up_values
+in
+.I config/config.example.yaml
+match this mock.
+No other SOAP run\-control endpoint with this interface exists in the Mu2e
+DAQ tree.
 .SH OPTIONS
 .TP
-\fB\-\-host\fR \fIHOST\fR
-Bind address. Default: \fB127.0.0.1\fR.
+.BI \-\-host " HOST"
+Bind address, also written into the WSDL service location.
+Default
+.BR 127.0.0.1 .
 .TP
-\fB\-\-port\fR \fIPORT\fR
-Listen port. Default: \fB8080\fR.
+.BI \-\-port " PORT"
+Listen port.
+Default
+.BR 8080 .
+Other DAQ services, for example
+.BR mu2edaq\-resource\-manager ,
+also default to 8080; choose a free port on shared hosts.
 .TP
-\fB\-\-state\fR \fISTATE\fR
-Initial value of \fBrunState\fR returned by the SOAP operation.
-Case-sensitive; use values that match your \fBdown_values\fR /
-\fBup_values\fR config. Default: \fBRunning\fR.
+.BI \-\-state " VALUE"
+Initial
+.BR runState .
+Default
+.BR Running .
+The detector compares case\-insensitively against its
+.B down_values
+and
+.BR up_values .
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
 .SH ENDPOINTS
 .TP
-\fBPOST /RunControl\fR
-SOAP endpoint. Returns a \fBgetRunStateResponse\fR envelope with the
-current \fBrunState\fR value.
+.B GET /RunControl?wsdl
+The WSDL.
+Any
+.B GET
+whose query string is exactly
+.B wsdl
+returns it.
 .TP
-\fBGET /RunControl?wsdl\fR
-Returns the WSDL describing the \fBgetRunState\fR operation.
+.BI "GET /set?state=" VALUE
+Set
+.B runState
+and reply
+.BI state= VALUE
+as plain text.
 .TP
-\fBGET /set?state=\fIVALUE\fR
-Sets the current \fBrunState\fR to \fIVALUE\fR and returns the new state.
-Does not require a restart.
+.B POST
+Any path: reply with a
+.B getRunStateResponse
+envelope carrying the current value.
+The request body is read and ignored.
+.TP
+.B GET
+Any other path: reply
+.BI runState= VALUE
+as plain text.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped with Ctrl\-C.
+.TP
+.B 1
+Bind failure (uncaught
+.BR OSError ).
+.TP
+.B 2
+Usage error.
 .SH EXAMPLES
-Start with initial state \fBRunning\fR:
+Serve on a free port and flip the state:
 .PP
 .RS
 .nf
-python \-m tools.soap_server \-\-host 127.0.0.1 \-\-port 8080 \-\-state Running
+python \-m tools.soap_server \-\-port 18080 \-\-state Running
+curl 'http://127.0.0.1:18080/set?state=Stopped'
+curl 'http://127.0.0.1:18080/RunControl?wsdl'
 .fi
 .RE
 .PP
-Toggle to \fBStopped\fR at runtime:
+Matching detector block:
 .PP
 .RS
 .nf
-curl 'http://127.0.0.1:8080/set?state=Stopped'
-.fi
-.RE
-.PP
-Toggle back to \fBRunning\fR:
-.PP
-.RS
-.nf
-curl 'http://127.0.0.1:8080/set?state=Running'
-.fi
-.RE
-.PP
-Fetch the WSDL:
-.PP
-.RS
-.nf
-curl 'http://127.0.0.1:8080/RunControl?wsdl'
+\- id: soap_mock
+  plugin: downtime_logger.detectors.soap_detector:SoapDetector
+  options:
+    wsdl: "http://127.0.0.1:18080/RunControl?wsdl"
+    operation: getRunState
+    state_path: runState
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-zmq\-publish (1),
-.BR mu2edaq\-downtime\-logger (1)
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger\-api (7),
+.BR mu2edaq\-downtime\-logger.yaml (5)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

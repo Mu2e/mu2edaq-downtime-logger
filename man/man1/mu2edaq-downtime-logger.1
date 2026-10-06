@@ -1,123 +1,198 @@
-.TH MU2EDAQ\-DOWNTIME\-LOGGER 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH MU2EDAQ\-DOWNTIME\-LOGGER 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-downtime\-logger \- monitor and record Mu2e DAQ downtime events
+mu2edaq\-downtime\-logger \- detect and record Mu2e DAQ downtime events
 .SH SYNOPSIS
 .B mu2edaq\-downtime\-logger
-\fB\-\-config\fR \fIFILE\fR
-[\fB\-\-log\-level\fR \fILEVEL\fR]
+.RB { \-c | \-\-config }
+.I FILE
+.RB [ \-\-log\-level
+.IR LEVEL ]
+.br
+.B mu2edaq\-downtime\-logger
+.B \-h
 .SH DESCRIPTION
 .B mu2edaq\-downtime\-logger
-is a Qt desktop application that monitors the Mu2e DAQ system and records
-downtime events to a persistent storage backend (SQLite by default).
+is a PySide6 desktop application.
+It runs a set of pluggable
+.I detectors
+(ZeroMQ, UDP, SOAP, disk activity, log file), each on its own
+.BR QThread ,
+and folds their UP/DOWN/UNKNOWN readings into one weighted score:
 .PP
-Detection is plugin-based: any combination of ZeroMQ, UDP, SOAP,
-disk-activity, and log-file scanner detectors feed a weighted score.
-When the score crosses a configurable trip threshold a dismissible popup
-prompts the shifter for details (category, subsystem, cause, notes).
-The event is closed automatically when the score drops below the clear
-threshold and is persisted in the configured storage backend.
+.RS
+.nf
+score = sum(weight of DOWN detectors) / sum(weight of UP or DOWN detectors)
+.fi
+.RE
 .PP
-An optional read-only HTTP server exposes the current status, a summary
-and report page with date-range filtering, and a JSON API for dashboards
-and programmatic clients.
+UNKNOWN detectors abstain.
+When the score reaches
+.I trip_threshold
+and stays there for
+.I debounce_seconds
+a downtime event is opened, written to the storage backend, and a
+non-modal popup asks the shifter for category, subsystem, cause and notes.
+The event is closed automatically once the score is at or below
+.I clear_threshold
+for
+.IR debounce_seconds .
+Thresholds, weights and detectors come from the YAML file named by
+.BR \-\-config ;
+see
+.BR mu2edaq\-downtime\-logger.yaml (5).
+.PP
+.B Monitoring starts disabled.
+Detectors run and the score is displayed, but no event is opened until the
+shifter switches
+.I Monitoring
+on in the main window or the tray menu.
+There is no configuration key or option that changes this.
+.PP
+The main window shows the live detector table and score above a history
+table of recorded events.
+Double\-click a row to edit it; the context menu offers
+.IR Edit ,
+.I End downtime now
+(only for the event the state machine currently holds open),
+.I Delete event
+(permanent) and
+.IR "New event" .
+Closing the window leaves the application running in the system tray.
+.PP
+If
+.B webserver.enabled
+is true, a read\-only HTTP view (Python
+.BR http.server ,
+one thread per request) is started on
+.BR webserver.bind : webserver.port
+and the application announces itself to
+.BR mu2edaq\-discover (1)
+when the
+.B mu2edaq_discovery
+package is importable.
+The routes are documented in
+.BR mu2edaq\-downtime\-logger\-api (7).
 .SH OPTIONS
 .TP
-\fB\-c\fR, \fB\-\-config\fR \fIFILE\fR
-Path to the YAML configuration file. Required.
+.BR \-c ", " \-\-config " \fIFILE\fR"
+YAML configuration file.
+Required; there is no default path and no search path.
 .TP
-\fB\-\-log\-level\fR \fILEVEL\fR
-Python logging level. One of \fBDEBUG\fR, \fBINFO\fR, \fBWARNING\fR,
-\fBERROR\fR. Default: \fBINFO\fR.
-.SH CONFIGURATION
-The configuration file is YAML. Key top-level sections:
+.BI \-\-log\-level " LEVEL"
+Python logging level for the root logger: one of
+.BR DEBUG ,
+.BR INFO ,
+.BR WARNING ,
+.BR ERROR .
+Default
+.BR INFO .
+Log records go to standard error.
 .TP
-.B storage
-Storage backend plugin and options. Default backend is SQLite.
-.TP
-.B metric
-Scoring plugin and threshold options (\fItrip_threshold\fR,
-\fIclear_threshold\fR, \fIdebounce_seconds\fR).
-.TP
-.B detectors
-List of detector plugins, each with an \fIid\fR, \fIplugin\fR path,
-\fIweight\fR, and plugin-specific \fIoptions\fR.
-.TP
-.B webserver
-Optional HTTP server configuration (\fIenabled\fR, \fIbind\fR, \fIport\fR,
-\fIrefresh_seconds\fR, \fIhistory_limit\fR).
-.PP
-See \fBconfig/config.example.yaml\fR for a fully annotated example.
-.SH QT INTERFACE
-The main window has two panels.
-.PP
-The \fBlive status\fR panel (top) shows current detector states, the
-weighted score, and the active event if any.
-Right-click for a context menu with a manual \fINew event\&...\fR option.
-.PP
-The \fBdowntime history\fR panel (bottom) shows all recorded events.
-Double-click a row to open the event editor.
-Right-click for a context menu: \fIEdit\&...\fR, \fIEnd downtime now\fR
-(open events only), \fIDelete event\&...\fR, and \fINew event\&...\fR.
-.PP
-Select multiple rows with Shift+click or Ctrl+click to apply context menu
-operations to all selected events simultaneously.
-Bulk delete shows a confirmation dialog listing all affected IDs.
-Delete operations are restricted to the Qt application and are not
-available via the web interface.
-.SH WEB INTERFACE
-When the web server is enabled the following routes are available:
-.TP
-.B GET /
-Auto-refreshing HTML status page.
-.TP
-.B GET /report
-Date/time range picker with summary statistics, per-category and
-per-subsystem breakdowns, and a full event listing with durations clamped
-to the selected window.
-.TP
-.B GET /api/status
-Current score, per-detector states, and active event as JSON.
-.TP
-.B GET /api/events
-Recent events (up to \fIhistory_limit\fR) as JSON.
-.TP
-.B GET /api/events/<id>
-Single event by ID as JSON.
-.TP
-.B GET /api/report?from=YYYY-MM-DDTHH:MM&to=YYYY-MM-DDTHH:MM
-Aggregate statistics and full event list for a time range as JSON.
-Defaults to the last 7 days if query parameters are omitted.
-.TP
-.B GET /healthz
-Liveness probe. Returns \fBok\fR.
+.BR \-h ", " \-\-help
+Print usage and exit.
 .SH FILES
 .TP
 .I config/config.example.yaml
-Annotated production configuration template.
+Five\-detector example.
+Its ZeroMQ and SOAP detectors point at the placeholder host
+.IR daq01 ,
+which does not resolve; see
+.BR mu2edaq\-downtime\-logger.yaml (5).
 .TP
 .I config/local.yaml
-Desktop development configuration (no external DAQ required).
+Three\-detector workstation test configuration (UDP on 127.0.0.1:9000,
+.IR /tmp/daq\-test ,
+web view on 127.0.0.1:8001).
+.BR start\-mu2edaq\-downtime\-logger.sh (1)
+uses it when no
+.B \-\-config
+is given.
 .TP
 .I events.db
-Default SQLite database path (configurable via \fIstorage.options.path\fR).
+SQLite database, at
+.B storage.options.path
+resolved against the current working directory.
+Tables
+.B downtime_events
+and
+.BR detector_state_log .
+Timestamps are stored as UTC wall\-clock strings without an offset.
+.SH ENVIRONMENT
+The application reads no environment variables of its own.
+Qt honours
+.B DISPLAY
+and
+.BR QT_QPA_PLATFORM ;
+.B QT_QPA_PLATFORM=offscreen
+runs it without a display (used by the test suite).
+.SH EXIT STATUS
+.TP
+.B 0
+Normal exit through the tray
+.I Quit
+action, the window manager, or
+.BR SIGINT .
+.TP
+.B 1
+Configuration error (missing
+.B storage
+or
+.B metric
+section, no detectors, duplicate detector id, unloadable plugin) or a
+failure to bind the web server port; a Python traceback is printed.
+.TP
+.B 2
+Command\-line usage error.
+.TP
+.B 143
+Terminated by
+.BR SIGTERM .
+No handler is installed for
+.BR SIGTERM ,
+so the process exits without stopping detector threads, without closing the
+storage backend and without closing an open downtime event; that event stays
+open in the database and is not reattached on the next start.
+Use
+.B SIGINT
+for a clean stop.
 .SH EXAMPLES
-Run with the local development configuration:
+Run the workstation test configuration in the foreground:
 .PP
 .RS
 .nf
 source venv/bin/activate
-mu2edaq\-downtime\-logger \-\-config config/local.yaml
-.fi
-.RE
-.PP
-Run with debug logging:
-.PP
-.RS
-.nf
 mu2edaq\-downtime\-logger \-\-config config/local.yaml \-\-log\-level DEBUG
 .fi
 .RE
+.PP
+Drive it from a second terminal with the diagnostic tools:
+.PP
+.RS
+.nf
+python \-m tools.udp_broadcast \-\-host 127.0.0.1 \-\-port 9000 \-\-state running
+python \-m tools.disk_writer \-\-path /tmp/daq\-test \-\-interval 5
+.fi
+.RE
+.PP
+Run headless, for example under a test harness:
+.PP
+.RS
+.nf
+QT_QPA_PLATFORM=offscreen mu2edaq\-downtime\-logger \-c config/local.yaml
+.fi
+.RE
 .SH SEE ALSO
-.BR mu2edaq\-start (1),
-.BR mu2edaq\-stop (1),
-.BR mu2edaq\-bootstrap (1)
+.BR mu2edaq\-downtime\-logger.yaml (5),
+.BR mu2edaq\-downtime\-logger\-api (7),
+.BR downtime_logger (3),
+.BR start\-mu2edaq\-downtime\-logger.sh (1),
+.BR stop\-mu2edaq\-downtime\-logger.sh (1),
+.BR bootstrap.sh (1),
+.BR zmq_publish.py (1),
+.BR udp_broadcast.py (1),
+.BR soap_server.py (1),
+.BR disk_writer.py (1),
+.BR log_writer.py (1),
+.BR mu2edaq\-discover (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

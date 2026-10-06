@@ -1,62 +1,113 @@
-.TH MU2EDAQ\-STOP 1 "June 2026" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Tools"
+.TH STOP\-MU2EDAQ\-DOWNTIME\-LOGGER.SH 1 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
 .SH NAME
-mu2edaq\-stop \- stop the mu2edaq\-downtime\-logger application
+stop\-mu2edaq\-downtime\-logger.sh \- stop the downtime logger
 .SH SYNOPSIS
 .B stop\-mu2edaq\-downtime\-logger.sh
-[\fB\-\-timeout\fR \fISECS\fR]
-[\fB\-\-force\fR]
-.SH DESCRIPTION
+.RB [ \-\-timeout
+.IR SECS ]
+.RB [ \-\-force ]
+.br
 .B stop\-mu2edaq\-downtime\-logger.sh
-stops a
+.BR \-h | \-\-help
+.SH DESCRIPTION
+The script reads
+.I mu2edaq\-downtime\-logger.pid
+from its own directory, sends
+.B SIGTERM
+to that PID, polls once a second for up to
+.B \-\-timeout
+seconds, and sends
+.B SIGKILL
+if the process is still alive.
+It then removes the PID file and deletes the directory
+.I /tmp/daq\-test
+(the fixture directory of
+.IR config/local.yaml )
+if it exists, whatever configuration the application was running.
+The
+.B \-\-force
+path and the nothing\-to\-stop paths skip that deletion.
+.PP
+A missing PID file, or one naming a dead process, is reported and the
+script exits 0 (removing the stale file).
+.PP
+.B SIGTERM is not a clean shutdown for this application.
 .BR mu2edaq\-downtime\-logger (1)
-process that was started with
-.BR start\-mu2edaq\-downtime\-logger.sh (1).
-.PP
-The script reads the PID from \fImu2edaq\-downtime\-logger.pid\fR, sends
-\fBSIGTERM\fR, and waits up to \fB\-\-timeout\fR seconds for the process to
-exit cleanly. If the process has not exited by the timeout, \fBSIGKILL\fR
-is sent. The PID file is removed on exit.
-.PP
-If no PID file is present the script exits with status 0 without error.
-A stale PID file (process no longer running) is detected and removed
-automatically.
-.PP
-After the process stops, the script removes the local test directory
-\fI/tmp/daq\-test\fR if it exists, cleaning up files left by the
-diagnostic tools.
+installs a handler only for
+.BR SIGINT ;
+on
+.B SIGTERM
+the Python process exits at once (status 143) without running its Qt
+.I aboutToQuit
+cleanup.
+A downtime event open at that moment keeps
+.B ended_at
+NULL in the database, is not reattached on the next start, cannot be ended
+with
+.IR "End downtime now" ,
+and is counted as ongoing downtime by every later
+.B /report
+range.
+Close such an event by editing it (clear
+.IR Ongoing ,
+set the end time, Save).
+To stop cleanly, quit from the tray menu or send
+.B SIGINT
+instead.
 .SH OPTIONS
 .TP
-\fB\-\-timeout\fR \fISECS\fR
-Seconds to wait for a clean \fBSIGTERM\fR shutdown before escalating to
-\fBSIGKILL\fR. Default: \fB10\fR.
+.BI \-\-timeout " SECS"
+Seconds to wait after
+.B SIGTERM
+before escalating to
+.BR SIGKILL .
+Default
+.BR 10 .
 .TP
 .B \-\-force
-Send \fBSIGKILL\fR immediately without attempting a graceful shutdown.
+Send
+.B SIGKILL
+immediately.
 .TP
-.B \-h\fR, \fB\-\-help
-Print a usage summary and exit.
+.BR \-h ", " \-\-help
+Print usage and exit 0.
 .SH FILES
 .TP
 .I mu2edaq\-downtime\-logger.pid
-PID file read by this script. Must exist in the project root directory.
+PID file written by
+.BR start\-mu2edaq\-downtime\-logger.sh (1).
+.TP
+.I /tmp/daq\-test
+Removed recursively after every
+.BR SIGTERM / SIGKILL
+stop.
 .SH EXIT STATUS
-Exits 0 in all cases except unknown option errors.
+.TP
+.B 0
+The process was stopped, or there was nothing to stop.
+.TP
+.B 1
+Unknown option or an option missing its argument.
 .SH EXAMPLES
-Stop with a 30-second graceful timeout:
+Stop with a 30\-second grace period:
 .PP
 .RS
 .nf
-./stop\-mu2edaq\-downtime\-logger.sh \-\-timeout 30
+\&./stop\-mu2edaq\-downtime\-logger.sh \-\-timeout 30
 .fi
 .RE
 .PP
-Kill immediately:
+Stop cleanly without the
+.B SIGTERM
+path, closing any open event first:
 .PP
 .RS
 .nf
-./stop\-mu2edaq\-downtime\-logger.sh \-\-force
+kill \-INT "$(cat mu2edaq\-downtime\-logger.pid)"
 .fi
 .RE
 .SH SEE ALSO
-.BR mu2edaq\-start (1),
+.BR start\-mu2edaq\-downtime\-logger.sh (1),
 .BR mu2edaq\-downtime\-logger (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.

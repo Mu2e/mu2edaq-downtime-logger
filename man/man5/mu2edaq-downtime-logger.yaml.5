@@ -1,0 +1,338 @@
+.TH MU2EDAQ\-DOWNTIME\-LOGGER.YAML 5 "2026-10-06" "mu2edaq-downtime-logger 0.1.0" "Mu2e DAQ Manual"
+.SH NAME
+mu2edaq\-downtime\-logger.yaml \- downtime logger configuration file
+.SH SYNOPSIS
+.I config/config.example.yaml
+.br
+.I config/local.yaml
+.br
+any file given to
+.B mu2edaq\-downtime\-logger \-\-config
+.SH DESCRIPTION
+One YAML document with four top\-level mappings:
+.BR storage ,
+.BR metric ,
+.B detectors
+and the optional
+.BR webserver .
+It is read once at startup by
+.B yaml.safe_load
+(src/downtime_logger/config.py); there is no reload.
+.PP
+.B storage
+and
+.B metric
+are mandatory (a missing one aborts with
+.IR "Missing required config section" ),
+at least one detector is required, and detector
+.B id
+values must be unique.
+Unknown top\-level keys are ignored.
+.PP
+There is no search path, no environment\-variable layer and no
+.I .env
+file: the
+.B \-\-config
+option is required and names the only file read.
+.PP
+Every
+.B plugin
+value is
+.IR module.path:ClassName ,
+imported with
+.B importlib
+and instantiated with the
+.B options
+mapping as keyword arguments.
+A module anywhere on
+.B PYTHONPATH
+can be named; see
+.BR downtime_logger (3).
+.SH STORAGE
+.TP
+.B plugin
+Shipped:
+.BR downtime_logger.storage.sqlite_backend:SQLiteBackend .
+.TP
+.B options.path
+SQLite file.
+Default
+.BR events.db .
+Tilde\-expanded and resolved against the process working directory; parent
+directories are created.
+.TP
+.B options.echo
+Boolean; log every SQL statement.
+Default
+.BR false .
+.SH WEBSERVER
+Optional read\-only HTTP view, documented in
+.BR mu2edaq\-downtime\-logger\-api (7).
+.TP
+.B enabled
+Default
+.BR false .
+When false neither the HTTP server nor the
+.B mu2edaq\-discovery
+announcement starts.
+.TP
+.B bind
+Default
+.BR 0.0.0.0 .
+.TP
+.B port
+Default
+.BR 8088 .
+.I config/local.yaml
+uses 127.0.0.1:8001.
+The control\-room application inventory
+.RB ( mu2edaq\-controlroom\-setup ,
+.IR config/apps.yaml )
+assigns 8088, but the application does not read the
+.B CRS_PORT_HTTP
+variable it exports; only this key sets the port.
+A bind failure aborts startup.
+.TP
+.B refresh_seconds
+HTML meta\-refresh interval of the status page.
+Default
+.BR 5 .
+.TP
+.B history_limit
+Events listed on
+.B /
+and returned by
+.BR /api/events .
+Default
+.BR 200 .
+.SH METRIC
+.TP
+.B plugin
+Shipped:
+.BR downtime_logger.core.metric:WeightedRatioMetric .
+.TP
+.B options.trip_threshold
+While no event is open, an event is requested when
+.RI score " >= " trip_threshold .
+Default
+.BR 0.6 .
+.TP
+.B options.clear_threshold
+While an event is open, it is held while
+.RI score " > " clear_threshold
+and released otherwise.
+Default
+.BR 0.2 .
+A detector that is stuck DOWN contributes
+.IR w_i / sum(w_known)
+on its own.
+If that exceeds
+.I clear_threshold
+no event can ever close by itself.
+With all detectors reporting this means
+.I clear_threshold
+must be below
+.IR min(w)/sum(w) ;
+the example weights give 0.136, so the shipped 0.2 is too high for the
+0.5 and 0.6 detectors.
+.TP
+.B options.debounce_seconds
+A requested open or close is applied only if the metric still requests it
+after this many seconds.
+Removed from the options before the metric is constructed and given to the
+state machine.
+Default
+.BR 5 .
+Recorded start and end times are those of the debounce expiry, not of the
+first threshold crossing.
+.SH DETECTORS
+A list of mappings:
+.TP
+.B id
+Unique name; shown in the UI and stored in
+.BR detector_state_log .
+.TP
+.B plugin
+Detector class.
+.TP
+.B weight
+Float, default
+.BR 1.0 .
+A sibling of
+.BR options ,
+consumed by the state machine; it never reaches the detector.
+.TP
+.B options
+Keyword arguments for the detector.
+Every shipped detector swallows unknown keys, so a misspelt option is
+silently ignored and its default used.
+.SS downtime_logger.detectors.zeromq_detector:ZmqDetector
+.TP
+.B endpoint
+Required.
+Endpoint to
+.B connect
+a
+.B ZMQ_SUB
+socket to.
+The peer must
+.B bind
+a
+.B ZMQ_PUB
+socket.
+A
+.B ZMQ_PULL
+peer such as the
+.B mu2edaq\-dashboard
+bus on 5555 rejects the pairing during the handshake and nothing is ever
+received; an unresolvable host is not an error either.
+Both cases end as DOWN with detail
+.I no zmq messages within timeout
+after
+.BR heartbeat_timeout_s .
+.TP
+.B topic
+Subscription prefix.
+Default empty (all messages).
+.TP
+.B heartbeat_timeout_s
+Default
+.BR 10 .
+.SS downtime_logger.detectors.udp_detector:UdpDetector
+.TP
+.B bind
+Local address to bind.
+Default
+.BR 0.0.0.0 .
+.TP
+.B port
+Local UDP port.
+Default
+.BR 9000 .
+A bind failure leaves the detector UNKNOWN.
+.TP
+.B heartbeat_timeout_s
+Default
+.BR 15 .
+.SS downtime_logger.detectors.soap_detector:SoapDetector
+.TP
+.B wsdl
+Required.
+WSDL URL, fetched with
+.B zeep
+on the first poll and again after any failed call.
+.TP
+.B operation
+Default
+.BR getRunState .
+.TP
+.B args
+Mapping passed as keyword arguments to the operation.
+Default empty.
+.TP
+.B state_path
+Dotted path into the response.
+Default
+.BR runState .
+.TP
+.BR down_values ", " up_values
+Lists compared case\-insensitively and exactly with the extracted value.
+Defaults
+.B [stopped, idle, halted]
+and
+.BR "[running, active]" .
+Anything else, a WSDL failure or a call failure gives UNKNOWN.
+.TP
+.B poll_s
+Default
+.BR 5 .
+.SS downtime_logger.detectors.disk_detector:DiskActivityDetector
+.TP
+.B paths
+Required list of directories.
+A missing directory is skipped with a warning; if none exists the detector
+reports DOWN on its first poll.
+.TP
+.B idle_seconds
+DOWN when no file under
+.B paths
+was modified for this long.
+Default
+.BR 60 .
+.TP
+.B poll_s
+Default
+.BR 5 .
+.TP
+.B recursive
+Default
+.BR true .
+.SS downtime_logger.detectors.logfile_detector:LogfileDetector
+.TP
+.BR path ", " paths
+One file, a list of files, or both; at least one is required.
+A file that does not exist leaves the detector UNKNOWN.
+.TP
+.BR down_patterns ", " up_patterns
+Python regular expressions applied with
+.B re.search
+to each new line; down patterns first, first match wins.
+A missing list means no pattern of that kind.
+An invalid expression aborts startup.
+YAML double\-quoted strings need doubled backslashes:
+.BR "\(dq\e\ebABORT\e\eb\(dq" .
+.TP
+.B poll_s
+Default
+.BR 1 .
+.SH FILES
+.TP
+.I config/config.example.yaml
+Five\-detector example.
+.B zmq_run_status
+and
+.B artdaq_soap
+point at
+.IR daq01 ,
+a host that does not resolve, on the ports where the package's own
+.BR zmq_publish.py (1)
+and
+.BR soap_server.py (1)
+listen by default.
+Port 5555 there is also the
+.B mu2edaq\-dashboard
+PULL port, which this detector cannot read.
+Replace both endpoints before use.
+.TP
+.I config/local.yaml
+Workstation test file: UDP on 127.0.0.1:9000,
+.IR /tmp/daq\-test ,
+.IR /tmp/daq\-test/run.log ,
+web view on 127.0.0.1:8001, thresholds 0.5/0.2, debounce 2 s.
+Default of
+.BR start\-mu2edaq\-downtime\-logger.sh (1).
+.SH EXAMPLES
+Single UDP heartbeat detector:
+.PP
+.RS
+.nf
+storage:
+  plugin: downtime_logger.storage.sqlite_backend:SQLiteBackend
+  options: {path: ./events.db}
+metric:
+  plugin: downtime_logger.core.metric:WeightedRatioMetric
+  options: {trip_threshold: 0.6, clear_threshold: 0.1, debounce_seconds: 5}
+detectors:
+  \- id: udp_heartbeat
+    plugin: downtime_logger.detectors.udp_detector:UdpDetector
+    options: {bind: 0.0.0.0, port: 9000, heartbeat_timeout_s: 15}
+webserver: {enabled: true, bind: 0.0.0.0, port: 8088}
+.fi
+.RE
+.SH SEE ALSO
+.BR mu2edaq\-downtime\-logger (1),
+.BR mu2edaq\-downtime\-logger\-api (7),
+.BR downtime_logger (3),
+.BR start\-mu2edaq\-downtime\-logger.sh (1)
+.SH AUTHOR
+Andrew Norman and the Mu2e DAQ group, Fermi National Accelerator Laboratory.
